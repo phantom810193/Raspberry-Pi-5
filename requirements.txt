@@ -1,0 +1,7 @@
+Flask>=3.0
+numpy>=1.24
+opencv-python>=4.8
+# 安裝 dlib 時請確認系統已安裝必要的編譯套件
+# 樹莓派可改用 https://piwheels.org/ 上的對應版本
+# 若於 PC 上模擬，可將下列註解解除
+dlib>=19.24
