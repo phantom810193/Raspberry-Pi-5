@@ -71,11 +71,18 @@ jobs:
           if [ -d tests/assets/personA ] && ls tests/assets/personA/* >/dev/null 2>&1; then
             echo "Using your photos from tests/assets/personA"
             mkdir -p tests/_artifacts/debug
-            python tests/run_face_test.py               --input-dir tests/assets/personA               --log id_test.log               --threshold 0.6               --target_pass_ratio 0.8               --save-dir tests/_artifacts/debug
+            python tests/run_face_test.py \
+              --input-dir tests/assets/personA \
+              --log id_test.log \
+              --threshold 0.6 \
+              --target_pass_ratio 0.8 \
+              --save-dir tests/_artifacts/debug
           else
             echo "No personal photos found, running built-in sample variants"
             mkdir -p tests/_artifacts/variants
-            python tests/run_face_test.py               --log id_test.log               --save-dir tests/_artifacts/variants
+            python tests/run_face_test.py \
+              --log id_test.log \
+              --save-dir tests/_artifacts/variants
           fi
 
       - name: Upload id_test.log
@@ -83,6 +90,13 @@ jobs:
         with:
           name: id-test-log
           path: id_test.log
+
+      - name: Upload id_test_files.txt (filenames & matches)
+        uses: actions/upload-artifact@v4
+        with:
+          name: id-test-files
+          path: id_test_files.txt
+          if-no-files-found: ignore
 
       - name: Upload debug/variants (if any)
         uses: actions/upload-artifact@v4
