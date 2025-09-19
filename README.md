@@ -69,6 +69,19 @@ models/
 
 若需要加速或較佳準確率，可另外下載 `mmod_human_face_detector.dat` 並於設定中啟用 CNN 偵測模式。
 
+### 4. 離線訓練流程
+
+1. 準備資料夾結構 `data/faces/<member_id>/image.jpg`，詳見 `data/faces/README.md`。每人建議 5~10 張不同角度的臉部照片。
+2. 於開發機執行：
+
+   ```bash
+   PYTHONPATH=src python scripts/build_encodings.py --input data/faces --output models/known_faces.npz
+   PYTHONPATH=src python scripts/train_classifier.py --input models/known_faces.npz --output models/face_classifier.pkl
+   ```
+
+   產生的 `models/face_classifier.pkl` 會同時儲存平均特徵向量與辨識閾值。若需匿名化，可在第二步加上 `--hash-labels`。
+3. 將 `models/face_classifier.pkl` 與 dlib 預訓練檔一併複製到 Raspberry Pi 的 `models/` 目錄，即可直接推論。
+
 ## 執行方式
 
 ### 1. 模擬模式（無攝影機，展示流程）
@@ -88,8 +101,10 @@ curl -X POST http://<IP>:8000/api/simulate -H 'Content-Type: application/json' -
 
 ```bash
 source .venv/bin/activate
-python -m pi_kiosk.flask_app --camera --db-path data/kiosk.db --model-dir models
+python -m pi_kiosk.flask_app --camera --db-path data/kiosk.db --model-dir models --classifier models/face_classifier.pkl
 ```
+
+若未提供 `--classifier`，系統會自動尋找 `models/face_classifier.pkl`，找不到時回到匿名雜湊模式。
 
 參數說明：
 
