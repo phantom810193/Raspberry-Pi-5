@@ -47,7 +47,7 @@ def main():
 
     ref = encs[0]
     others = encs[1:]
-    dists = fr.face_distance([ref]*len(others), others)
+    dists = fr.face_distance(others, ref)
     matches = sum(float(d) < args.threshold for d in dists)
     ratio = matches / len(others)
     required = math.ceil(args.target_pass_ratio * len(others))
