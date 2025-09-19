@@ -74,8 +74,3 @@ jobs:
           name: id-test-log
           path: id_test.log
       - name: Upload face variants (if any)
-        uses: actions/upload-artifact@v4
-        with:
-          name: face-variants
-          path: tests/_artifacts/variants/*.jpg
-          if-no-files-found: ignore
