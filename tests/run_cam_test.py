@@ -1,4 +1,4 @@
-# tests/run_cam_test.py
+## tests/run_cam_test.py
 import argparse, time, numpy as np
 import cv2
 
