@@ -1,4 +1,4 @@
-# tests/run_face_test.py
+## tests/run_face_test.py
 import argparse, io, math, urllib.request, time, os
 from pathlib import Path
 from PIL import Image, ImageEnhance, ImageFilter
