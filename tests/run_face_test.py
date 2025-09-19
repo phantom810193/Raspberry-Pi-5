@@ -71,6 +71,7 @@ def main():
 
     t0 = time.time()
 
+    names = []
     if args.input_dir:
         p = Path(args.input_dir)
         if not p.exists():
@@ -79,6 +80,7 @@ def main():
         files = sorted([f for f in p.iterdir() if f.suffix.lower() in exts])
         if len(files) < 5:
             raise RuntimeError(f"Need >=5 images in {p}, found {len(files)}")
+        names = [files[i].name for i in range(5)]
         debug_dir = Path(args.save_dir) if args.save_dir else None
         if debug_dir:
             debug_dir.mkdir(parents=True, exist_ok=True)
@@ -93,10 +95,10 @@ def main():
     else:
         base = load_image_from_url(SAMPLE_URL)
         variants = make_variants(base)
+        names = ["variant_0_base.jpg","variant_1_rotate.jpg","variant_2_brightness.jpg","variant_3_crop.jpg","variant_4_blur.jpg"]
         outdir = Path(args.save_dir) if args.save_dir else None
         if outdir:
             outdir.mkdir(parents=True, exist_ok=True)
-            names = ["variant_0_base.jpg","variant_1_rotate.jpg","variant_2_brightness.jpg","variant_3_crop.jpg","variant_4_blur.jpg"]
             for im, name in zip(variants, names):
                 im.save(outdir / name, format="JPEG", quality=95)
         encs = [encode_one(im) for im in variants]
@@ -104,7 +106,8 @@ def main():
     ref = encs[0]
     others = encs[1:]
     dists = fr.face_distance(others, ref)
-    matches = int(sum(float(d) < args.threshold for d in dists))
+    matches_bools = [bool(float(d) < args.threshold) for d in dists]
+    matches = int(sum(matches_bools))
     ratio = matches / len(others)
     required = math.ceil(args.target_pass_ratio * len(others))
     passed = matches >= required
@@ -112,12 +115,17 @@ def main():
     with open(args.log, "w", encoding="utf-8") as f:
         f.write(f"threshold={args.threshold}\n")
         f.write(f"required_matches={required} / {len(others)} (>= {args.target_pass_ratio*100:.0f}%)\n")
-        for i, d in enumerate(dists, 1):
-            f.write(f"image_{i}_distance={d:.4f}, match={d < args.threshold}\n")
+        for fname, d, ok in zip(names[1:], dists, matches_bools):
+            f.write(f"{fname}: distance={float(d):.4f}, match={ok}\n")
         f.write(f"total_matches={matches}\n")
         f.write(f"pass_ratio={ratio:.2f}\n")
         f.write(f"result={'PASS' if passed else 'FAIL'}\n")
         f.write(f"elapsed_sec={time.time()-t0:.2f}\n")
+
+    with open("id_test_files.txt", "w", encoding="utf-8") as f:
+        f.write("index,filename,distance,match\n")
+        for i, (fname, d, ok) in enumerate(zip(names[1:], dists, matches_bools), start=1):
+            f.write(f"{i},{fname},{float(d):.6f},{int(ok)}\n")
 
     assert passed, f"Face-ID test did not reach {args.target_pass_ratio*100:.0f}% (got {ratio*100:.0f}%)"
 
