@@ -12,6 +12,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        
+      - name: Show repo tree
+        run: |
+          echo "PWD: $(pwd)"
+          echo "---- root ----"; ls -lah
+          echo "---- tests ----"; ls -lah tests || true
+
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -39,6 +46,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        
+      - name: Guard: ensure tests exist
+        run: |
+          test -f tests/run_cam_test.py || { echo "tests/run_cam_test.py not found"; git ls-files | sed -n '1,200p'; exit 1; }
+          test -f tests/run_face_test.py || { echo "tests/run_face_test.py not found"; git ls-files | sed -n '1,200p'; exit 1; }
 
       - name: Setup Python
         uses: actions/setup-python@v5
