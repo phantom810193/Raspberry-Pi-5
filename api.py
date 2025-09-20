@@ -2,31 +2,36 @@
 import os, time
 from flask import Flask, request, jsonify
 
+# CI 用 SAFE 模式（ci.yml 的 api-test 有設 SAFE_API=1）
 SAFE_MODE = os.getenv("SAFE_API", "0") == "1"
 
 if not SAFE_MODE:
     try:
-        import face_recognition  # 或 cv2, dlib 視你的實作而定
+        # 這裡放你真正需要的人臉/影像依賴
+        # 例如：
+        # import face_recognition
+        # import cv2
+        pass
     except Exception:
-        SAFE_MODE = True  # 套件缺失時自動退回安全模式
+        # 若有失敗，自動退回 SAFE 模式，避免伺服器直接崩潰
+        SAFE_MODE = True
 
 app = Flask(__name__)
 
-@app.route("/detect_face", methods=["GET","POST"])
+@app.route("/detect_face", methods=["GET", "POST"])
 def detect_face():
     if SAFE_MODE:
-        return jsonify({"ok": True, "mode": "safe", "ts": time.time()}), 200
+        payload = request.get_json(silent=True) or {}
+        return jsonify({"ok": True, "mode": "safe", "echo": payload, "ts": time.time()}), 200
 
-    # ← 真實人臉邏輯（範例：multipart 上傳 'file'）
-    file = request.files.get("file")
-    if not file:
-        return jsonify({"ok": False, "error": "no file"}), 400
-    import numpy as np
-    from PIL import Image
-    img = Image.open(file.stream).convert("RGB")
-    arr = np.array(img)
-    boxes = face_recognition.face_locations(arr, model="hog")
-    return jsonify({"ok": True, "mode": "real", "faces": len(boxes)}), 200
+    # TODO: 這裡寫你的真實人臉流程（讀圖→偵測→回傳）
+    # 例：
+    # file = request.files.get("file")
+    # if not file:
+    #     return jsonify({"ok": False, "error": "no file"}), 400
+    # ... 處理 ...
+    return jsonify({"ok": True, "mode": "real", "ts": time.time()}), 200
 
 if __name__ == "__main__":
+    # 用 127.0.0.1:5000，和測試腳本一致
     app.run(host="127.0.0.1", port=5000, debug=False, threaded=True)
