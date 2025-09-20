@@ -4,7 +4,7 @@ from contextlib import closing
 from pathlib import Path
 import requests
 
-def wait_port(host, port, timeout=6.0):
+def wait_port(host, port, timeout=12.0):
     start = time.time()
     while time.time() - start < timeout:
         with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
@@ -31,6 +31,38 @@ def stop_proc(proc, out_f, err_f):
     finally:
         out_f.close(); err_f.close()
 
+def attempt(host, port, entry, mode, env):
+    """
+    mode:
+      A: python api.py
+      B: flask run (FLASK_APP=api.py)
+      C: flask run (FLASK_APP=api:app)
+      D: flask run (FLASK_APP=api:create_app)
+    """
+    out = "api_server_stdout.log"
+    err = "api_server_stderr.log"
+
+    if mode == "A":
+        cmd = [sys.executable, entry]
+        env2 = env
+    elif mode == "B":
+        env2 = env.copy(); env2["FLASK_APP"] = entry
+        cmd = [sys.executable, "-m", "flask", "run", "--host", host, "--port", str(port)]
+    elif mode == "C":
+        mod = entry.rsplit(".", 1)[0] if entry.endswith(".py") else entry
+        env2 = env.copy(); env2["FLASK_APP"] = f"{mod}:app"
+        cmd = [sys.executable, "-m", "flask", "run", "--host", host, "--port", str(port)]
+    elif mode == "D":
+        mod = entry.rsplit(".", 1)[0] if entry.endswith(".py") else entry
+        env2 = env.copy(); env2["FLASK_APP"] = f"{mod}:create_app"
+        cmd = [sys.executable, "-m", "flask", "run", "--host", host, "--port", str(port)]
+    else:
+        raise ValueError("unknown mode")
+
+    proc, of, ef = start_proc(cmd, env2, out, err)
+    ok = wait_port(host, port, timeout=12.0)
+    return ok, proc, of, ef
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--entry", default="api.py")
@@ -44,70 +76,58 @@ def main():
     url = f"http://{args.host}:{args.port}{args.endpoint}"
     env = os.environ.copy()
     env.setdefault("FLASK_ENV", "production")
+    # 關閉 reloader，避免背景多進程讓啟動判斷混亂
+    env["FLASK_RUN_RELOAD"] = "false"
 
-    # 方案 A：python api.py
-    proc, out_f, err_f = start_proc(
-        [sys.executable, args.entry],
-        env,
-        "api_server_stdout.log",
-        "api_server_stderr.log",
-    )
-    ok = wait_port(args.host, args.port, timeout=6.0)
+    tried = []
+    proc = of = ef = None
+    try:
+        for mode in ["A", "B", "C", "D"]:
+            ok, proc, of, ef = attempt(args.host, args.port, args.entry, mode, env)
+            tried.append(mode)
+            if ok:
+                break
+            else:
+                stop_proc(proc, of, ef)  # 失敗就清掉
 
-    # 若失敗，換 方案 B：Flask CLI（常見於檔案沒有 if __name__ == '__main__'）
-    if not ok:
-        stop_proc(proc, out_f, err_f)
-        env2 = env.copy()
-        env2["FLASK_APP"] = args.entry
-        env2["FLASK_RUN_FROM_CLI"] = "true"
-        proc, out_f, err_f = start_proc(
-            [sys.executable, "-m", "flask", "run", "--host", args.host, "--port", str(args.port)],
-            env2,
-            "api_server_stdout.log",
-            "api_server_stderr.log",
-        )
-        ok = wait_port(args.host, args.port, timeout=10.0)
+        if not ok:
+            out_txt = Path("api_server_stdout.log").read_text(encoding="utf-8", errors="ignore") if Path("api_server_stdout.log").exists() else ""
+            err_txt = Path("api_server_stderr.log").read_text(encoding="utf-8", errors="ignore") if Path("api_server_stderr.log").exists() else ""
+            with open(args.log, "w", encoding="utf-8") as f:
+                f.write(f"url={url}\n")
+                f.write(f"server_start=FAIL (tried modes {tried})\n")
+                f.write("server_stdout_begin\n"); f.write(out_txt); f.write("\nserver_stdout_end\n")
+                f.write("server_stderr_begin\n"); f.write(err_txt); f.write("\nserver_stderr_end\n")
+                f.write("result=FAIL\n")
+            raise SystemExit("Server didn't start")
 
-    if not ok:
-        # 讀取器輸出，寫到主 log
-        out_f.flush(); err_f.flush()
-        out_txt = Path("api_server_stdout.log").read_text(encoding="utf-8", errors="ignore")
-        err_txt = Path("api_server_stderr.log").read_text(encoding="utf-8", errors="ignore")
+        # 送請求（GET → 若 405 改 POST）
+        t0 = time.perf_counter()
+        method, status, text = "GET", -1, ""
+        try:
+            r = requests.get(url, timeout=2.0)
+            status, text = r.status_code, (r.text or "")[:400]
+            if status == 405:
+                t0 = time.perf_counter()
+                r = requests.post(url, json={"ping":"pong"}, timeout=2.0)
+                method, status, text = "POST", r.status_code, (r.text or "")[:400]
+        except requests.RequestException as e:
+            status, text = -1, f"request error: {e}"
+        elapsed = time.perf_counter() - t0
+
+        passed = (status in (200, 201)) and (elapsed < args.timeout)
         with open(args.log, "w", encoding="utf-8") as f:
             f.write(f"url={url}\n")
-            f.write("server_start=FAIL\n")
-            f.write("server_stdout_begin\n"); f.write(out_txt); f.write("\nserver_stdout_end\n")
-            f.write("server_stderr_begin\n"); f.write(err_txt); f.write("\nserver_stderr_end\n")
-            f.write("result=FAIL\n")
-        stop_proc(proc, out_f, err_f)
-        raise SystemExit("Server didn't start")
+            f.write(f"method={method}\n")
+            f.write(f"status={status}\n")
+            f.write(f"elapsed_sec={elapsed:.3f}\n")
+            f.write(f"body_preview={text}\n")
+            f.write(f"criteria=http_2xx && elapsed<{args.timeout}s\n")
+            f.write(f"result={'PASS' if passed else 'FAIL'}\n")
 
-    # 打一次請求（GET→405 改 POST）
-    t0 = time.perf_counter()
-    method, status, text = "GET", -1, ""
-    try:
-        r = requests.get(url, timeout=2.0)
-        status, text = r.status_code, (r.text or "")[:400]
-        if status == 405:
-            t0 = time.perf_counter()
-            r = requests.post(url, json={"ping": "pong"}, timeout=2.0)
-            method, status, text = "POST", r.status_code, (r.text or "")[:400]
-    except requests.RequestException as e:
-        status, text = -1, f"request error: {e}"
-    elapsed = time.perf_counter() - t0
-
-    passed = (status in (200, 201)) and (elapsed < args.timeout)
-    with open(args.log, "w", encoding="utf-8") as f:
-        f.write(f"url={url}\n")
-        f.write(f"method={method}\n")
-        f.write(f"status={status}\n")
-        f.write(f"elapsed_sec={elapsed:.3f}\n")
-        f.write(f"body_preview={text}\n")
-        f.write(f"criteria=http_2xx && elapsed<{args.timeout}s\n")
-        f.write(f"result={'PASS' if passed else 'FAIL'}\n")
-
-    stop_proc(proc, out_f, err_f)
-    assert passed, f"API test failed: status={status}, elapsed={elapsed:.3f}s"
+        assert passed, f"API test failed: status={status}, elapsed={elapsed:.3f}s"
+    finally:
+        if proc: stop_proc(proc, of, ef)
 
 if __name__ == "__main__":
     main()
