@@ -5,24 +5,28 @@ from flask import Flask, request, jsonify
 SAFE_MODE = os.getenv("SAFE_API", "0") == "1"
 
 if not SAFE_MODE:
-    # 只有本機/樹莓派實機才載入重依賴；CI 設 SAFE_API=1 就不載
     try:
-        import cv2  # or face_recognition, dlib, etc.
-        # ... 你的真實初始化 ...
-    except Exception as e:
-        # 若你想強制 CI 也能跑，不要 raise，改 SAFE fallback
-        SAFE_MODE = True
+        import face_recognition  # 或 cv2, dlib 視你的實作而定
+    except Exception:
+        SAFE_MODE = True  # 套件缺失時自動退回安全模式
 
 app = Flask(__name__)
 
-@app.route("/detect_face", methods=["GET", "POST"])
+@app.route("/detect_face", methods=["GET","POST"])
 def detect_face():
     if SAFE_MODE:
-        payload = request.get_json(silent=True) or {}
-        return jsonify({"ok": True, "mode": "safe", "echo": payload, "ts": time.time()}), 200
-    # 真實路徑：用到相機/人臉模型的邏輯
-    # result = real_detect(...)
-    return jsonify({"ok": True, "mode": "real", "ts": time.time()}), 200
+        return jsonify({"ok": True, "mode": "safe", "ts": time.time()}), 200
+
+    # ← 真實人臉邏輯（範例：multipart 上傳 'file'）
+    file = request.files.get("file")
+    if not file:
+        return jsonify({"ok": False, "error": "no file"}), 400
+    import numpy as np
+    from PIL import Image
+    img = Image.open(file.stream).convert("RGB")
+    arr = np.array(img)
+    boxes = face_recognition.face_locations(arr, model="hog")
+    return jsonify({"ok": True, "mode": "real", "faces": len(boxes)}), 200
 
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=5000, debug=False, threaded=True)
