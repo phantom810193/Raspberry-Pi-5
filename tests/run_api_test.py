@@ -29,11 +29,10 @@ def main():
     env = os.environ.copy()
     env.setdefault("FLASK_ENV", "production")
 
-    # 將 stdout/stderr 各自存檔以便除錯
     out_f = open("api_server_stdout.log", "w", encoding="utf-8")
     err_f = open("api_server_stderr.log", "w", encoding="utf-8")
 
-    # 優先直接啟動 api.py；若你需要 Flask CLI，再改為註解內那行
+    # 直接啟動 api.py；若你用 Flask CLI，改成註解內那行
     # proc = subprocess.Popen([sys.executable, "-m", "flask", "run", "--host", args.host, "--port", str(args.port)],
     #                         stdout=out_f, stderr=err_f, text=True, env={**env, "FLASK_APP": args.entry})
     proc = subprocess.Popen([sys.executable, args.entry], stdout=out_f, stderr=err_f, text=True, env=env)
@@ -42,17 +41,16 @@ def main():
     method_used, status, elapsed, text = "GET", -1, -1.0, ""
 
     try:
-        # 等待 25 秒，若子行程提早死亡，立刻停止等待
+        # 等待最多 25s，同時監控子行程是否提前死亡
         start = time.time()
         ok = False
         while time.time() - start < 25:
             if proc.poll() is not None:
-                break  # 伺服器已終止
+                break
             if wait_port(args.host, args.port, timeout=0.5):
                 ok = True
                 break
         if not ok:
-            # 讀取錯誤輸出放到 log
             out_f.flush(); err_f.flush()
             out_txt = Path("api_server_stdout.log").read_text(encoding="utf-8", errors="ignore")
             err_txt = Path("api_server_stderr.log").read_text(encoding="utf-8", errors="ignore")
@@ -64,18 +62,19 @@ def main():
                 f.write("result=FAIL\n")
             raise SystemExit("Server didn't start")
 
-        # 連線測試（GET→若 405 再 POST）
-        t0 = time.perf_counter()
+        # 送請求（GET；若 405 改 POST）
+        import time as _t, requests
+        t0 = _t.perf_counter()
         try:
             r = requests.get(url, timeout=2.0)
             method_used, status, text = "GET", r.status_code, (r.text or "")[:400]
             if status == 405:
-                t0 = time.perf_counter()
+                t0 = _t.perf_counter()
                 r = requests.post(url, json={"ping": "pong"}, timeout=2.0)
                 method_used, status, text = "POST", r.status_code, (r.text or "")[:400]
         except requests.RequestException as e:
             status, text = -1, f"request error: {e}"
-        elapsed = time.perf_counter() - t0
+        elapsed = _t.perf_counter() - t0
 
         passed = (status in (200, 201)) and (elapsed < args.timeout)
         with open(args.log, "w", encoding="utf-8") as f:
@@ -89,8 +88,7 @@ def main():
         assert passed, f"API test failed: status={status}, elapsed={elapsed:.3f}s"
 
     finally:
-        try:
-            proc.terminate(); proc.wait(timeout=3)
+        try: proc.terminate(); proc.wait(timeout=3)
         except Exception:
             try: proc.kill()
             except Exception: pass
