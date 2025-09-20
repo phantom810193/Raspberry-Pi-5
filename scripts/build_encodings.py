@@ -67,7 +67,18 @@ def encode_image(image_path: Path, upsample: int, jitters: int) -> Tuple[List[np
     except Exception as exc:  # pragma: no cover - depends on local files
         return [], f"無法載入 {image_path}: {exc}"
 
-    encodings = face_recognition.face_encodings(image, num_jitters=jitters, num_upsamples=upsample)
+    locations = face_recognition.face_locations(
+        image,
+        number_of_times_to_upsample=upsample,
+    )
+    if not locations:
+        return [], f"{image_path} 未找到臉部特徵"
+
+    encodings = face_recognition.face_encodings(
+        image,
+        known_face_locations=locations,
+        num_jitters=jitters,
+    )
     if not encodings:
         return [], f"{image_path} 未找到臉部特徵"
     if len(encodings) > 1:
