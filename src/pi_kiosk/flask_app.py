@@ -94,6 +94,12 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Raspberry Pi face recognition advertising kiosk")
     parser.add_argument("--db-path", type=Path, default=Path("data/kiosk.db"), help="SQLite database path")
     parser.add_argument("--model-dir", type=Path, default=Path("models"), help="Directory containing dlib model files")
+    parser.add_argument(
+        "--classifier",
+        type=Path,
+        default=None,
+        help="Optional classifier pickle produced by scripts/train_classifier.py",
+    )
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--camera", action="store_true", help="Enable live camera capture")
@@ -117,6 +123,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         model_dir=args.model_dir,
         simulated_member_ids=tuple(args.simulate_members) if args.simulate_members else None,
         cooldown_seconds=args.cooldown_seconds,
+        classifier_path=args.classifier,
     )
     pipeline = create_pipeline(config)
     app = create_app(pipeline)

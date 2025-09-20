@@ -36,6 +36,7 @@ class PipelineConfig:
     model_dir: Optional[Path] = None
     cooldown_seconds: int = 5
     simulated_member_ids: Optional[Tuple[str, ...]] = None
+    classifier_path: Optional[Path] = None
 
 
 class AdvertisementPipeline:
@@ -51,9 +52,15 @@ class AdvertisementPipeline:
             if config.model_dir is None:
                 raise ValueError("model_dir must be specified when using the real FaceIdentifier")
             model_dir = Path(config.model_dir)
+            classifier_path = config.classifier_path
+            if classifier_path is None:
+                default_classifier = model_dir / "face_classifier.pkl"
+                if default_classifier.exists():
+                    classifier_path = default_classifier
             detection_config = DetectionConfig(
                 shape_predictor_path=model_dir / "shape_predictor_68_face_landmarks.dat",
                 face_recognition_model_path=model_dir / "dlib_face_recognition_resnet_model_v1.dat",
+                classifier_path=classifier_path,
             )
             identifier = FaceIdentifier(detection_config)
         self.identifier = identifier
