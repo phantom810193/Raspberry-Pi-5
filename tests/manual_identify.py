@@ -37,14 +37,14 @@ def _open_capture() -> tuple[cv2.VideoCapture, str]:
             time.sleep(0.15)
             ok, frame = cap.read()
             if ok and frame is not None:
-                return cap, device
+                return cap, device, frame
         # fallback to default behaviour if exposure loop failed
         cap.set(cv2.CAP_PROP_EXPOSURE, float(EXPOSURE_CHOICES[0]))
         cap.set(cv2.CAP_PROP_GAIN, float(GAIN))
         time.sleep(0.3)  # give sensor time to settle
         ok, frame = cap.read()
         if ok and frame is not None:
-            return cap, device
+            return cap, device, frame
         last_error = f"{device} returned empty frame despite exposure attempts"
         cap.release()
     raise RuntimeError(last_error or "Could not open any /dev/video* candidate")
@@ -58,15 +58,8 @@ def main() -> int:
     )
     identifier = FaceIdentifier(config)
 
-    cap, device_path = _open_capture()
+    cap, device_path, frame = _open_capture()
     print(f"Using device: {device_path}")
-
-    ok, frame = cap.read()
-    cap.release()
-
-    if not ok or frame is None:
-        print("capture ok? False")
-        return 1
 
     print("capture ok? True")
     print("raw shape:", frame.shape, "dtype:", frame.dtype)
