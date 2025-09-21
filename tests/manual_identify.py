@@ -17,6 +17,7 @@ HEIGHT = 720
 FOURCC = "YUYV"
 CANDIDATE_DEVICES = sorted(glob("/dev/video*"))  # libcamerify creates a temp device
 EXPOSURE_CHOICES = (800.0, 600.0, 400.0)
+MIN_MEAN = 15.0
 GAIN = 5.0
 
 
@@ -34,10 +35,15 @@ def _open_capture() -> tuple[cv2.VideoCapture, str]:
         # Try to set exposure/gain if driver honours it (values are device dependent).
         for exposure in EXPOSURE_CHOICES:
             cap.set(cv2.CAP_PROP_EXPOSURE, exposure)
-            time.sleep(0.15)
-            ok, frame = cap.read()
-            if ok and frame is not None:
-                return cap, device, frame
+            time.sleep(0.2)
+            for _ in range(3):  # grab a few frames so exposure can stabilise
+                ok, frame = cap.read()
+                if not ok or frame is None:
+                    continue
+                mean_value = float(frame.mean())
+                print(f"device={device}, exposure={exposure}, mean={mean_value:.2f}")
+                if mean_value > MIN_MEAN:
+                    return cap, device, frame
         # fallback to default behaviour if exposure loop failed
         cap.set(cv2.CAP_PROP_EXPOSURE, float(EXPOSURE_CHOICES[0]))
         cap.set(cv2.CAP_PROP_GAIN, float(GAIN))
@@ -60,6 +66,8 @@ def main() -> int:
 
     cap, device_path, frame = _open_capture()
     print(f"Using device: {device_path}")
+
+    cap.release()
 
     print("capture ok? True")
     print("raw shape:", frame.shape, "dtype:", frame.dtype)
