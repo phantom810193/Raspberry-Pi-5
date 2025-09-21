@@ -129,7 +129,11 @@ def camera_loop(pipeline: AdvertisementPipeline, camera_index: int = 0, width: O
     if not OPENCV_AVAILABLE:
         raise ImportError("OpenCV (cv2) is not installed; camera loop is unavailable")
 
-    capture = cv2.VideoCapture(camera_index)
+    # ``libcamerify`` exposes the CSI camera as a V4L2 device. Request a format that
+    # OpenCV can decode directly; ``YUYV`` works across libcamera builds and keeps the
+    # conversion cost small compared to raw Bayer data.
+    capture = cv2.VideoCapture(camera_index, cv2.CAP_V4L2)
+    capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"YUYV"))
     if width:
         capture.set(cv2.CAP_PROP_FRAME_WIDTH, width)
     if height:
@@ -141,6 +145,21 @@ def camera_loop(pipeline: AdvertisementPipeline, camera_index: int = 0, width: O
             if not ok:
                 LOGGER.warning("Failed to read frame from camera index %s", camera_index)
                 time.sleep(1)
+                continue
+            if frame is None:
+                LOGGER.warning("Camera index %s returned empty frame", camera_index)
+                time.sleep(0.1)
+                continue
+
+            # Frames can come back as 2-channel YUYV or already expanded to 3-channel.
+            # Normalise them to BGR for the downstream pipeline.
+            if frame.ndim == 2 or (frame.ndim == 3 and frame.shape[2] in (1, 2)):
+                frame = cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_YUY2)
+            elif frame.ndim == 3 and frame.shape[2] != 3:
+                LOGGER.warning(
+                    "Unexpected frame shape from camera index %s: %s", camera_index, frame.shape
+                )
+                time.sleep(0.1)
                 continue
             pipeline.process_frame(frame)
             time.sleep(0.1)
