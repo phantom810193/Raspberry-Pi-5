@@ -16,7 +16,7 @@ WIDTH = 1280
 HEIGHT = 720
 FOURCC = "YUYV"
 CANDIDATE_DEVICES = sorted(glob("/dev/video*"))  # libcamerify creates a temp device
-EXPOSURE_US = 20_000
+EXPOSURE_CHOICES = (800.0, 600.0, 400.0)
 GAIN = 5.0
 
 
@@ -32,13 +32,20 @@ def _open_capture() -> tuple[cv2.VideoCapture, str]:
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
         # Try to set exposure/gain if driver honours it (values are device dependent).
-        cap.set(cv2.CAP_PROP_EXPOSURE, float(EXPOSURE_US))
+        for exposure in EXPOSURE_CHOICES:
+            cap.set(cv2.CAP_PROP_EXPOSURE, exposure)
+            time.sleep(0.15)
+            ok, frame = cap.read()
+            if ok and frame is not None:
+                return cap, device
+        # fallback to default behaviour if exposure loop failed
+        cap.set(cv2.CAP_PROP_EXPOSURE, float(EXPOSURE_CHOICES[0]))
         cap.set(cv2.CAP_PROP_GAIN, float(GAIN))
         time.sleep(0.3)  # give sensor time to settle
         ok, frame = cap.read()
         if ok and frame is not None:
             return cap, device
-        last_error = f"{device} returned empty frame"
+        last_error = f"{device} returned empty frame despite exposure attempts"
         cap.release()
     raise RuntimeError(last_error or "Could not open any /dev/video* candidate")
 
