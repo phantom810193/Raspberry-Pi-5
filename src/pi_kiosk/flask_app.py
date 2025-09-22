@@ -116,7 +116,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--idle-reset-seconds",
         type=int,
-        default=10,
+        default=2,
         help="Seconds of inactivity before resetting to the waiting message (0 disables)",
     )
     return parser.parse_args(argv)

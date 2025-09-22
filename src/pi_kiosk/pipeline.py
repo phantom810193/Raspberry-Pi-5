@@ -45,7 +45,7 @@ class PipelineConfig:
     db_path: Path
     model_dir: Optional[Path] = None
     cooldown_seconds: int = 5
-    idle_reset_seconds: Optional[int] = 10
+    idle_reset_seconds: Optional[int] = 2
     simulated_member_ids: Optional[Tuple[str, ...]] = None
     classifier_path: Optional[Path] = None
 
