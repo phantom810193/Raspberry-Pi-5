@@ -81,7 +81,7 @@ class AdvertisementPipeline:
         self._latest_timestamp: Optional[datetime] = None
         self._id_last_seen: Dict[str, float] = {}
         self._lock = threading.RLock()
-        self._last_detection_time: float = 0.0
+        self._last_detection_time: Optional[float] = None
 
     # ------------------------------------------------------------------
     # High level API
@@ -137,14 +137,14 @@ class AdvertisementPipeline:
         with self._lock:
             if self._latest_id is None:
                 return
-            if self._last_detection_time <= 0:
+            if self._last_detection_time is None:
                 return
             if current_time - self._last_detection_time < idle_seconds:
                 return
             self._latest_message = "等待辨識中..."
             self._latest_id = None
             self._latest_timestamp = None
-            self._last_detection_time = 0.0
+            self._last_detection_time = None
 
 
 def create_pipeline(config: PipelineConfig) -> AdvertisementPipeline:
