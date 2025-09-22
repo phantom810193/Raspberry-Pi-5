@@ -99,8 +99,8 @@ class AdvertisementPipeline:
             if current_time - last_seen < self.config.cooldown_seconds:
                 continue
             self._id_last_seen[member_id] = current_time
-            message = self._handle_member(member_id)
-        self._maybe_reset_idle(current_time)
+            message = self._handle_member(member_id, current_time=current_time)
+        self._maybe_reset_idle(time.time())
         return message
 
     def simulate_member(self, member_id: str) -> str:
@@ -115,7 +115,7 @@ class AdvertisementPipeline:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
-    def _handle_member(self, member_id: str) -> str:
+    def _handle_member(self, member_id: str, *, current_time: Optional[float] = None) -> str:
         timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
         database.register_member(self.conn, member_id, timestamp)
         transactions = [
@@ -127,7 +127,7 @@ class AdvertisementPipeline:
             self._latest_message = message
             self._latest_id = member_id
             self._latest_timestamp = datetime.now(timezone.utc)
-            self._last_detection_time = time.time()
+            self._last_detection_time = current_time if current_time is not None else time.time()
         return message
 
     def _maybe_reset_idle(self, current_time: float) -> None:
