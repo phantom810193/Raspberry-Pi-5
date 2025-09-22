@@ -7,6 +7,11 @@ from pi_kiosk.flask_app import create_app
 from pi_kiosk.pipeline import PipelineConfig, create_pipeline
 
 
+class StubAI:
+    def generate(self, member_id, context):  # pragma: no cover - simple helper
+        return None
+
+
 class TransactionApiTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -17,7 +22,7 @@ class TransactionApiTests(unittest.TestCase):
             cooldown_seconds=0,
             idle_reset_seconds=None,
         )
-        self.pipeline = create_pipeline(config)
+        self.pipeline = create_pipeline(config, ai_client=StubAI())
         self.app = create_app(self.pipeline)
         self.client = self.app.test_client()
 

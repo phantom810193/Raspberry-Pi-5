@@ -25,13 +25,26 @@ class PipelineTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.db_path = Path(self.tmp.name) / "test.db"
+        self.stub_ai = self.StubAI()
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
+    class StubAI:
+        def __init__(self) -> None:
+            self.outputs = []
+
+        def enqueue(self, message: str) -> None:
+            self.outputs.append(message)
+
+        def generate(self, member_id, context):  # pragma: no cover - simple helper
+            if self.outputs:
+                return self.outputs.pop(0)
+            return None
+
     def test_simulated_member_updates_latest_message(self) -> None:
         config = PipelineConfig(db_path=self.db_path, simulated_member_ids=("member-001",))
-        pipeline = create_pipeline(config)
+        pipeline = create_pipeline(config, ai_client=self.stub_ai)
         message = pipeline.simulate_member("member-001")
         self.assertIn("會員ID-001", message)
         latest_message, latest_member, timestamp = pipeline.latest_message()
@@ -41,12 +54,19 @@ class PipelineTests(unittest.TestCase):
 
     def test_process_frame_respects_cooldown(self) -> None:
         config = PipelineConfig(db_path=self.db_path, simulated_member_ids=("member-001",), cooldown_seconds=60)
-        pipeline = create_pipeline(config)
+        pipeline = create_pipeline(config, ai_client=self.stub_ai)
         frame = np.zeros((10, 10, 3), dtype=np.uint8)
         first = pipeline.process_frame(frame)
         second = pipeline.process_frame(frame)
         self.assertIsNotNone(first)
         self.assertIsNone(second)
+
+    def test_ai_output_overrides_default_message(self) -> None:
+        config = PipelineConfig(db_path=self.db_path, simulated_member_ids=("member-001",))
+        self.stub_ai.enqueue("AI 生成的專屬廣告")
+        pipeline = create_pipeline(config, ai_client=self.stub_ai)
+        message = pipeline.simulate_member("member-001")
+        self.assertEqual(message, "AI 生成的專屬廣告")
 
     def test_idle_reset_restores_waiting_message(self) -> None:
         config = PipelineConfig(
@@ -56,7 +76,7 @@ class PipelineTests(unittest.TestCase):
             idle_reset_seconds=1,
         )
         identifier = SequenceIdentifier([["member-001"], []])
-        pipeline = AdvertisementPipeline(config, identifier=identifier)
+        pipeline = AdvertisementPipeline(config, identifier=identifier, ai_client=self.stub_ai)
         frame = np.zeros((10, 10, 3), dtype=np.uint8)
 
         with mock.patch("pi_kiosk.pipeline.time.time") as mock_time:
@@ -88,7 +108,7 @@ class PipelineTests(unittest.TestCase):
             [],
             [],
         ])
-        pipeline = AdvertisementPipeline(config, identifier=identifier)
+        pipeline = AdvertisementPipeline(config, identifier=identifier, ai_client=self.stub_ai)
         frame = np.zeros((10, 10, 3), dtype=np.uint8)
 
         with mock.patch("pi_kiosk.pipeline.time.time") as mock_time:

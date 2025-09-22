@@ -134,6 +134,22 @@ python -m pi_kiosk.flask_app --camera --db-path data/kiosk.db --model-dir models
 
   僅允許已存在於 `members` 表的會員 ID；若找不到會員會回傳 404。
 
+### 生成式 AI 廣告
+
+- 系統會根據最新交易資料呼叫本地 LLM (`LLaMA_CPP`) 產生文案，若失敗則回退到固定模板。
+- 可透過環境變數調整 AI 服務參數：
+
+  | 變數 | 預設值 | 說明 |
+  | ---- | ------ | ---- |
+  | `AI_PROVIDER` | `local` | 目前僅用於註記來源 |
+  | `AI_BASE_URL` | `http://localhost:8080/v1` | OpenAI 相容 API 位置 |
+  | `AI_MODEL` | `LLaMA_CPP` | 模型名稱 |
+  | `AI_API_KEY` | `sk-no-key-required` | API Key（本地服務可忽略） |
+  | `AI_TIMEOUT` | `10` | 單次請求逾時秒數 |
+  | `AI_CACHE_TTL` | `60` | 同一會員文案快取秒數 |
+
+- 需要改接雲端模型時，只要更新上述設定即可。
+
 ## SQLite 結構與示範資料
 
 - `members(id TEXT PRIMARY KEY, first_seen TEXT)`

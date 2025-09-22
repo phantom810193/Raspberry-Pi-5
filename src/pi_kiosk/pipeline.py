@@ -21,6 +21,7 @@ except ImportError:  # pragma: no cover - optional dependency
 import numpy as np
 
 from . import advertising, database
+from .ai_client import AIClient, build_context_from_transactions
 from .detection import DetectionConfig, FaceIdentifier, SimulatedFaceIdentifier
 
 
@@ -53,7 +54,12 @@ class PipelineConfig:
 class AdvertisementPipeline:
     """High level abstraction wrapping all kiosk behaviour."""
 
-    def __init__(self, config: PipelineConfig, identifier: Optional[Identifier] = None):
+    def __init__(
+        self,
+        config: PipelineConfig,
+        identifier: Optional[Identifier] = None,
+        ai_client: Optional[AIClient] = None,
+    ):
         self.config = config
         self.conn = database.connect(config.db_path)
         database.initialize_db(self.conn)
@@ -82,6 +88,7 @@ class AdvertisementPipeline:
         self._id_last_seen: Dict[str, float] = {}
         self._lock = threading.RLock()
         self._last_detection_time: Optional[float] = None
+        self._ai_client = ai_client or AIClient()
 
     # ------------------------------------------------------------------
     # High level API
@@ -123,12 +130,26 @@ class AdvertisementPipeline:
             for row in database.get_transactions(self.conn, member_id)
         ]
         message = advertising.generate_message(member_id, transactions)
+        ai_message: Optional[str] = None
+        if transactions:
+            context_transactions = [
+                {"item": tx.item, "amount": tx.amount, "timestamp": tx.timestamp}
+                for tx in transactions
+            ]
+            context = build_context_from_transactions(context_transactions)
+            if context_transactions:
+                context.setdefault("商品", context_transactions[0]["item"])
+                context.setdefault("價格", str(context_transactions[0]["amount"]))
+            ai_message = self._ai_client.generate(member_id, context)
+
+        final_message = ai_message or message
+
         with self._lock:
-            self._latest_message = message
+            self._latest_message = final_message
             self._latest_id = member_id
             self._latest_timestamp = datetime.now(timezone.utc)
             self._last_detection_time = current_time if current_time is not None else time.time()
-        return message
+        return final_message
 
     def add_transactions(self, member_id: str, records: Iterable[Tuple[str, float, str]]) -> int:
         """Append transactions for an existing member."""
@@ -152,14 +173,14 @@ class AdvertisementPipeline:
             self._last_detection_time = None
 
 
-def create_pipeline(config: PipelineConfig) -> AdvertisementPipeline:
+def create_pipeline(config: PipelineConfig, ai_client: Optional[AIClient] = None) -> AdvertisementPipeline:
     """Factory that respects ``simulated_member_ids``."""
     identifier: Identifier
     if config.simulated_member_ids is not None:
         identifier = SimulatedFaceIdentifier(config.simulated_member_ids)
     else:
         identifier = None  # type: ignore
-    return AdvertisementPipeline(config, identifier=identifier)
+    return AdvertisementPipeline(config, identifier=identifier, ai_client=ai_client)
 
 
 def _candidate_devices(primary_index: int) -> Tuple[str, ...]:
