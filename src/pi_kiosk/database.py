@@ -34,12 +34,16 @@ SAMPLE_TRANSACTIONS: Tuple[Tuple[str, str, float, str], ...] = (
 )
 
 
+class MemberNotFoundError(RuntimeError):
+    """Raised when attempting to operate on a non-existent member."""
+
+
 def connect(db_path: Path) -> Connection:
     """Open a connection to ``db_path`` ensuring that the parent directory exists."""
     db_path = Path(db_path)
     if db_path.parent and not db_path.parent.exists():
         db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -97,3 +101,25 @@ def upsert_transactions(conn: Connection, member_id: str, records: Iterable[Tupl
             "INSERT INTO transactions (member_id, item, amount, timestamp) VALUES (?, ?, ?, ?)",
             [(member_id, item, amount, timestamp) for item, amount, timestamp in records],
         )
+
+
+def insert_transactions(conn: Connection, member_id: str, records: Iterable[Tuple[str, float, str]]) -> int:
+    """Insert transactions for an existing member.
+
+    Raises ``MemberNotFoundError`` if the member is missing.
+    """
+
+    cursor = conn.execute("SELECT 1 FROM members WHERE id = ?", (member_id,))
+    if cursor.fetchone() is None:
+        raise MemberNotFoundError(f"Member {member_id} not found")
+
+    prepared: List[Tuple[str, float, str]] = [(item, float(amount), timestamp) for item, amount, timestamp in records]
+    if not prepared:
+        return 0
+
+    with conn:
+        conn.executemany(
+            "INSERT INTO transactions (member_id, item, amount, timestamp) VALUES (?, ?, ?, ?)",
+            [(member_id, item, amount, timestamp) for item, amount, timestamp in prepared],
+        )
+    return len(prepared)

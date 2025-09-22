@@ -8,6 +8,7 @@ from typing import Optional, Sequence
 
 from flask import Flask, Response, jsonify, render_template_string, request
 
+from .database import MemberNotFoundError
 from .pipeline import AdvertisementPipeline, PipelineConfig, camera_loop, create_pipeline
 
 HTML_TEMPLATE = """
@@ -43,7 +44,7 @@ HTML_TEMPLATE = """
           console.error('failed to refresh message', error);
         }
       }
-      setInterval(refreshMessage, 2000);
+      setInterval(refreshMessage, 1000);
       refreshMessage();
     </script>
   </body>
@@ -77,6 +78,45 @@ def create_app(pipeline: AdvertisementPipeline) -> Flask:
         message = pipeline.simulate_member(str(member_id))
         return jsonify({"message": message})
 
+    @app.route("/api/transactions", methods=["POST"])
+    def api_transactions() -> Response:
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify({"error": "Invalid JSON body"}), 400
+
+        raw_member_id = payload.get("member_id")
+        if raw_member_id is None:
+            return jsonify({"error": "member_id is required"}), 400
+        member_id = str(raw_member_id).strip()
+        if not member_id:
+            return jsonify({"error": "member_id cannot be empty"}), 400
+
+        transactions_payload = payload.get("transactions")
+        if not isinstance(transactions_payload, list) or not transactions_payload:
+            return jsonify({"error": "transactions must be a non-empty list"}), 400
+
+        records: list[tuple[str, float, str]] = []
+        for index, entry in enumerate(transactions_payload):
+            if not isinstance(entry, dict):
+                return jsonify({"error": f"transactions[{index}] must be an object"}), 400
+            item = entry.get("item")
+            amount = entry.get("amount")
+            timestamp = entry.get("timestamp")
+            if not item or amount is None or not timestamp:
+                return jsonify({"error": f"transactions[{index}] missing item/amount/timestamp"}), 400
+            try:
+                amount_value = float(amount)
+            except (TypeError, ValueError):
+                return jsonify({"error": f"transactions[{index}].amount must be numeric"}), 400
+            records.append((str(item), amount_value, str(timestamp)))
+
+        try:
+            inserted = pipeline.add_transactions(member_id, records)
+        except MemberNotFoundError:
+            return jsonify({"error": "member not found"}), 404
+
+        return jsonify({"member_id": member_id, "inserted": inserted}), 200
+
     return app
 
 
@@ -94,6 +134,12 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Raspberry Pi face recognition advertising kiosk")
     parser.add_argument("--db-path", type=Path, default=Path("data/kiosk.db"), help="SQLite database path")
     parser.add_argument("--model-dir", type=Path, default=Path("models"), help="Directory containing dlib model files")
+    parser.add_argument(
+        "--classifier",
+        type=Path,
+        default=None,
+        help="Optional classifier pickle produced by scripts/train_classifier.py",
+    )
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--camera", action="store_true", help="Enable live camera capture")
@@ -106,7 +152,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         default=None,
         help="Run without camera using the provided member IDs in a round-robin fashion",
     )
-    parser.add_argument("--cooldown-seconds", type=int, default=5, help="Minimum seconds between repeated IDs")
+    parser.add_argument("--cooldown-seconds", type=int, default=2, help="Minimum seconds between repeated IDs")
+    parser.add_argument(
+        "--idle-reset-seconds",
+        type=int,
+        default=2,
+        help="Seconds of inactivity before resetting to the waiting message (0 disables)",
+    )
     return parser.parse_args(argv)
 
 
@@ -117,6 +169,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         model_dir=args.model_dir,
         simulated_member_ids=tuple(args.simulate_members) if args.simulate_members else None,
         cooldown_seconds=args.cooldown_seconds,
+        idle_reset_seconds=args.idle_reset_seconds if args.idle_reset_seconds > 0 else None,
+        classifier_path=args.classifier,
     )
     pipeline = create_pipeline(config)
     app = create_app(pipeline)

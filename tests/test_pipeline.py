@@ -1,10 +1,24 @@
 import tempfile
 import unittest
+from collections import deque
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 
-from pi_kiosk.pipeline import PipelineConfig, create_pipeline
+from pi_kiosk.pipeline import AdvertisementPipeline, PipelineConfig, create_pipeline
+
+
+class SequenceIdentifier:
+    """Identifier stub that returns a predefined sequence of detections."""
+
+    def __init__(self, outputs):
+        self._outputs = deque(outputs)
+
+    def identify(self, image):  # pragma: no cover - simple helper
+        if self._outputs:
+            return list(self._outputs.popleft())
+        return []
 
 
 class PipelineTests(unittest.TestCase):
@@ -33,6 +47,85 @@ class PipelineTests(unittest.TestCase):
         second = pipeline.process_frame(frame)
         self.assertIsNotNone(first)
         self.assertIsNone(second)
+
+    def test_idle_reset_restores_waiting_message(self) -> None:
+        config = PipelineConfig(
+            db_path=self.db_path,
+            simulated_member_ids=None,
+            cooldown_seconds=0,
+            idle_reset_seconds=1,
+        )
+        identifier = SequenceIdentifier([["member-001"], []])
+        pipeline = AdvertisementPipeline(config, identifier=identifier)
+        frame = np.zeros((10, 10, 3), dtype=np.uint8)
+
+        with mock.patch("pi_kiosk.pipeline.time.time") as mock_time:
+            mock_time.return_value = 0.0
+            pipeline.process_frame(frame)
+            message, member_id, timestamp = pipeline.latest_message()
+            self.assertEqual(member_id, "member-001")
+            self.assertIsNotNone(timestamp)
+
+            mock_time.return_value = 2.0
+            pipeline.process_frame(frame)
+            message, member_id, timestamp = pipeline.latest_message()
+            self.assertEqual(message, "等待辨識中...")
+            self.assertIsNone(member_id)
+            self.assertIsNone(timestamp)
+
+    def test_idle_reset_triggers_across_multiple_cycles(self) -> None:
+        config = PipelineConfig(
+            db_path=self.db_path,
+            simulated_member_ids=None,
+            cooldown_seconds=0,
+            idle_reset_seconds=1,
+        )
+        identifier = SequenceIdentifier([
+            ["member-001"],
+            [],
+            [],
+            ["member-002"],
+            [],
+            [],
+        ])
+        pipeline = AdvertisementPipeline(config, identifier=identifier)
+        frame = np.zeros((10, 10, 3), dtype=np.uint8)
+
+        with mock.patch("pi_kiosk.pipeline.time.time") as mock_time:
+            mock_time.side_effect = [
+                0.0, 0.0,  # first detection (start/end)
+                2.0, 2.0,  # first idle reset
+                3.0, 3.0,  # idle steady
+                4.5, 4.5,  # second detection
+                6.0, 6.0,  # second idle reset
+                7.5, 7.5,  # idle steady
+            ]
+
+            pipeline.process_frame(frame)
+            message, member_id, _ = pipeline.latest_message()
+            self.assertEqual(member_id, "member-001")
+
+            pipeline.process_frame(frame)
+            message, member_id, _ = pipeline.latest_message()
+            self.assertEqual(message, "等待辨識中...")
+            self.assertIsNone(member_id)
+
+            pipeline.process_frame(frame)  # stays idle
+            message, member_id, _ = pipeline.latest_message()
+            self.assertEqual(message, "等待辨識中...")
+
+            pipeline.process_frame(frame)
+            message, member_id, _ = pipeline.latest_message()
+            self.assertEqual(member_id, "member-002")
+
+            pipeline.process_frame(frame)
+            message, member_id, _ = pipeline.latest_message()
+            self.assertEqual(message, "等待辨識中...")
+            self.assertIsNone(member_id)
+
+            pipeline.process_frame(frame)
+            message, member_id, _ = pipeline.latest_message()
+            self.assertEqual(message, "等待辨識中...")
 
 
 if __name__ == "__main__":  # pragma: no cover
