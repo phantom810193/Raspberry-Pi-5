@@ -47,12 +47,16 @@ class AIConfig:
 
     @classmethod
     def from_env(cls) -> "AIConfig":
+        provider = os.getenv("AI_PROVIDER", "local")
+        provider_normalized = provider.strip().lower()
+        default_timeout = 35.0 if provider_normalized in {"local", "llama", "llama_cpp"} else 20.0
+
         return cls(
-            provider=os.getenv("AI_PROVIDER", "local"),
+            provider=provider,
             base_url=os.getenv("AI_BASE_URL", DEFAULT_BASE_URL),
             model=os.getenv("AI_MODEL", DEFAULT_MODEL),
             api_key=os.getenv("AI_API_KEY", DEFAULT_API_KEY),
-            timeout=float(os.getenv("AI_TIMEOUT", "10")),
+            timeout=float(os.getenv("AI_TIMEOUT", str(default_timeout))),
             cache_ttl=float(os.getenv("AI_CACHE_TTL", "60")),
         )
 
