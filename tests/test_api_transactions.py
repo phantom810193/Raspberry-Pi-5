@@ -8,7 +8,12 @@ from pi_kiosk.pipeline import PipelineConfig, create_pipeline
 
 
 class StubAI:
+    def __init__(self) -> None:
+        self.should_fail = False
+
     def generate(self, member_id, context):  # pragma: no cover - simple helper
+        if self.should_fail:
+            raise TimeoutError("simulated timeout")
         return None
 
 
@@ -22,7 +27,8 @@ class TransactionApiTests(unittest.TestCase):
             cooldown_seconds=0,
             idle_reset_seconds=None,
         )
-        self.pipeline = create_pipeline(config, ai_client=StubAI())
+        self.stub_ai = StubAI()
+        self.pipeline = create_pipeline(config, ai_client=self.stub_ai)
         self.app = create_app(self.pipeline)
         self.client = self.app.test_client()
 
@@ -69,6 +75,20 @@ class TransactionApiTests(unittest.TestCase):
         }
         response = self.client.post("/api/transactions", json=payload)
         self.assertEqual(response.status_code, 400)
+
+    def test_insert_transactions_handles_ai_timeout(self) -> None:
+        member_id = "member-timeout"
+        self.pipeline.simulate_member(member_id)
+        self.stub_ai.should_fail = True
+
+        payload = {
+            "member_id": member_id,
+            "transactions": [{"item": "咖啡豆", "amount": 150, "timestamp": "2025-01-01T10:00:00"}],
+        }
+        response = self.client.post("/api/transactions", json=payload)
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(data["inserted"], 1)
 
 
 if __name__ == "__main__":

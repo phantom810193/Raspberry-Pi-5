@@ -140,7 +140,11 @@ class AdvertisementPipeline:
             if context_transactions:
                 context.setdefault("商品", context_transactions[0]["item"])
                 context.setdefault("價格", str(context_transactions[0]["amount"]))
-            ai_message = self._ai_client.generate(member_id, context)
+            try:
+                ai_message = self._ai_client.generate(member_id, context)
+            except Exception as exc:  # pragma: no cover - defensive
+                LOGGER.warning("AI generation raised %s for member %s", exc, member_id)
+                ai_message = None
 
         final_message = ai_message or message
 
