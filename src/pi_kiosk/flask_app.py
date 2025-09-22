@@ -113,6 +113,12 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="Run without camera using the provided member IDs in a round-robin fashion",
     )
     parser.add_argument("--cooldown-seconds", type=int, default=5, help="Minimum seconds between repeated IDs")
+    parser.add_argument(
+        "--idle-reset-seconds",
+        type=int,
+        default=10,
+        help="Seconds of inactivity before resetting to the waiting message (0 disables)",
+    )
     return parser.parse_args(argv)
 
 
@@ -123,6 +129,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         model_dir=args.model_dir,
         simulated_member_ids=tuple(args.simulate_members) if args.simulate_members else None,
         cooldown_seconds=args.cooldown_seconds,
+        idle_reset_seconds=args.idle_reset_seconds if args.idle_reset_seconds > 0 else None,
         classifier_path=args.classifier,
     )
     pipeline = create_pipeline(config)

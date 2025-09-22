@@ -45,6 +45,7 @@ class PipelineConfig:
     db_path: Path
     model_dir: Optional[Path] = None
     cooldown_seconds: int = 5
+    idle_reset_seconds: Optional[int] = 10
     simulated_member_ids: Optional[Tuple[str, ...]] = None
     classifier_path: Optional[Path] = None
 
@@ -80,21 +81,26 @@ class AdvertisementPipeline:
         self._latest_timestamp: Optional[datetime] = None
         self._id_last_seen: Dict[str, float] = {}
         self._lock = threading.RLock()
+        self._last_detection_time: float = 0.0
 
     # ------------------------------------------------------------------
     # High level API
     # ------------------------------------------------------------------
     def process_frame(self, frame: np.ndarray) -> Optional[str]:
         """Process a frame from the camera returning a new advert message if any."""
+        current_time = time.time()
         member_ids = list(self.identifier.identify(frame))
+        if member_ids:
+            with self._lock:
+                self._last_detection_time = current_time
         message: Optional[str] = None
         for member_id in member_ids:
-            current_time = time.time()
             last_seen = self._id_last_seen.get(member_id, 0)
             if current_time - last_seen < self.config.cooldown_seconds:
                 continue
             self._id_last_seen[member_id] = current_time
             message = self._handle_member(member_id)
+        self._maybe_reset_idle(current_time)
         return message
 
     def simulate_member(self, member_id: str) -> str:
@@ -121,7 +127,24 @@ class AdvertisementPipeline:
             self._latest_message = message
             self._latest_id = member_id
             self._latest_timestamp = datetime.now(timezone.utc)
+            self._last_detection_time = time.time()
         return message
+
+    def _maybe_reset_idle(self, current_time: float) -> None:
+        idle_seconds = self.config.idle_reset_seconds
+        if idle_seconds is None or idle_seconds <= 0:
+            return
+        with self._lock:
+            if self._latest_id is None:
+                return
+            if self._last_detection_time <= 0:
+                return
+            if current_time - self._last_detection_time < idle_seconds:
+                return
+            self._latest_message = "等待辨識中..."
+            self._latest_id = None
+            self._latest_timestamp = None
+            self._last_detection_time = 0.0
 
 
 def create_pipeline(config: PipelineConfig) -> AdvertisementPipeline:
