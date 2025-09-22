@@ -115,6 +115,25 @@ python -m pi_kiosk.flask_app --camera --db-path data/kiosk.db --model-dir models
 
 程式會啟動背景執行緒讀取攝影機並進行辨識，Flask 頁面即時更新廣告。
 
+### REST API
+
+- `GET /api/ad`：取得目前顯示的廣告內容。
+- `POST /api/simulate`：Body `{"member_id": "member-001"}`，用於無攝影機狀態下模擬會員到訪。
+- `POST /api/transactions`：Body 需包含 `member_id` 與 `transactions`（非空陣列），例如：
+
+  ```bash
+  curl -X POST http://<IP>:8000/api/transactions \
+    -H 'Content-Type: application/json' \
+    -d '{
+          "member_id": "member-123",
+          "transactions": [
+            {"item": "咖啡豆", "amount": 150, "timestamp": "2025-01-01T10:00:00"}
+          ]
+        }'
+  ```
+
+  僅允許已存在於 `members` 表的會員 ID；若找不到會員會回傳 404。
+
 ## SQLite 結構與示範資料
 
 - `members(id TEXT PRIMARY KEY, first_seen TEXT)`

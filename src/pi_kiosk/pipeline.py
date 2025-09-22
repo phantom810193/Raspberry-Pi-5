@@ -130,6 +130,11 @@ class AdvertisementPipeline:
             self._last_detection_time = current_time if current_time is not None else time.time()
         return message
 
+    def add_transactions(self, member_id: str, records: Iterable[Tuple[str, float, str]]) -> int:
+        """Append transactions for an existing member."""
+        with self._lock:
+            return database.insert_transactions(self.conn, member_id, records)
+
     def _maybe_reset_idle(self, current_time: float) -> None:
         idle_seconds = self.config.idle_reset_seconds
         if idle_seconds is None or idle_seconds <= 0:

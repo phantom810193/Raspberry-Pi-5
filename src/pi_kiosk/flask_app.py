@@ -8,6 +8,7 @@ from typing import Optional, Sequence
 
 from flask import Flask, Response, jsonify, render_template_string, request
 
+from .database import MemberNotFoundError
 from .pipeline import AdvertisementPipeline, PipelineConfig, camera_loop, create_pipeline
 
 HTML_TEMPLATE = """
@@ -76,6 +77,45 @@ def create_app(pipeline: AdvertisementPipeline) -> Flask:
             return jsonify({"error": "member_id missing"}), 400
         message = pipeline.simulate_member(str(member_id))
         return jsonify({"message": message})
+
+    @app.route("/api/transactions", methods=["POST"])
+    def api_transactions() -> Response:
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify({"error": "Invalid JSON body"}), 400
+
+        raw_member_id = payload.get("member_id")
+        if raw_member_id is None:
+            return jsonify({"error": "member_id is required"}), 400
+        member_id = str(raw_member_id).strip()
+        if not member_id:
+            return jsonify({"error": "member_id cannot be empty"}), 400
+
+        transactions_payload = payload.get("transactions")
+        if not isinstance(transactions_payload, list) or not transactions_payload:
+            return jsonify({"error": "transactions must be a non-empty list"}), 400
+
+        records: list[tuple[str, float, str]] = []
+        for index, entry in enumerate(transactions_payload):
+            if not isinstance(entry, dict):
+                return jsonify({"error": f"transactions[{index}] must be an object"}), 400
+            item = entry.get("item")
+            amount = entry.get("amount")
+            timestamp = entry.get("timestamp")
+            if not item or amount is None or not timestamp:
+                return jsonify({"error": f"transactions[{index}] missing item/amount/timestamp"}), 400
+            try:
+                amount_value = float(amount)
+            except (TypeError, ValueError):
+                return jsonify({"error": f"transactions[{index}].amount must be numeric"}), 400
+            records.append((str(item), amount_value, str(timestamp)))
+
+        try:
+            inserted = pipeline.add_transactions(member_id, records)
+        except MemberNotFoundError:
+            return jsonify({"error": "member not found"}), 404
+
+        return jsonify({"member_id": member_id, "inserted": inserted}), 200
 
     return app
 
