@@ -43,7 +43,7 @@ HTML_TEMPLATE = """
           console.error('failed to refresh message', error);
         }
       }
-      setInterval(refreshMessage, 2000);
+      setInterval(refreshMessage, 1000);
       refreshMessage();
     </script>
   </body>
@@ -112,7 +112,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         default=None,
         help="Run without camera using the provided member IDs in a round-robin fashion",
     )
-    parser.add_argument("--cooldown-seconds", type=int, default=5, help="Minimum seconds between repeated IDs")
+    parser.add_argument("--cooldown-seconds", type=int, default=2, help="Minimum seconds between repeated IDs")
     parser.add_argument(
         "--idle-reset-seconds",
         type=int,

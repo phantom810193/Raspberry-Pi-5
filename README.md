@@ -110,7 +110,7 @@ python -m pi_kiosk.flask_app --camera --db-path data/kiosk.db --model-dir models
 
 - `--camera-index`：攝影機編號（預設 0）。
 - `--frame-width`, `--frame-height`：可選擇設定影像解析度。
-- `--cooldown-seconds`：於 `PipelineConfig` 中可微調同一 ID 觸發間隔。
+- `--cooldown-seconds`：於 `PipelineConfig` 中可微調同一 ID 觸發間隔（預設 2 秒）。
 - `--idle-reset-seconds`：閒置多久後回復「等待辨識中…」，設定為 0 可停用。
 
 程式會啟動背景執行緒讀取攝影機並進行辨識，Flask 頁面即時更新廣告。
