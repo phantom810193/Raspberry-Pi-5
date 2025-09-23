@@ -129,6 +129,13 @@ class AdvertisementPipeline:
             advertising.Transaction(item=row["item"], amount=row["amount"], timestamp=row["timestamp"])
             for row in database.get_transactions(self.conn, member_id)
         ]
+
+        with self._lock:
+            self._latest_message = "辨識完成，讀取購買紀錄中…"
+            self._latest_id = member_id
+            self._latest_timestamp = datetime.now(timezone.utc)
+            self._last_detection_time = current_time if current_time is not None else time.time()
+
         message = advertising.generate_message(member_id, transactions)
         ai_message: Optional[str] = None
         if transactions:
@@ -140,6 +147,8 @@ class AdvertisementPipeline:
             if context_transactions:
                 context.setdefault("商品", context_transactions[0]["item"])
                 context.setdefault("價格", str(context_transactions[0]["amount"]))
+            with self._lock:
+                self._latest_message = "產生廣告資訊中…"
             try:
                 ai_message = self._ai_client.generate(member_id, context)
             except Exception as exc:  # pragma: no cover - defensive
