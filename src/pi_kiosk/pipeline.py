@@ -89,6 +89,7 @@ class AdvertisementPipeline:
         self._lock = threading.RLock()
         self._last_detection_time: Optional[float] = None
         self._ai_client = ai_client or AIClient()
+        self._ai_busy = False
 
     # ------------------------------------------------------------------
     # High level API
@@ -118,6 +119,10 @@ class AdvertisementPipeline:
     def latest_message(self) -> Tuple[str, Optional[str], Optional[datetime]]:
         with self._lock:
             return self._latest_message, self._latest_id, self._latest_timestamp
+
+    def ai_busy(self) -> bool:
+        with self._lock:
+            return self._ai_busy
 
     # ------------------------------------------------------------------
     # Internals
@@ -149,11 +154,15 @@ class AdvertisementPipeline:
                 context.setdefault("價格", str(context_transactions[0]["amount"]))
             with self._lock:
                 self._latest_message = "產生廣告資訊中…"
+                self._ai_busy = True
             try:
                 ai_message = self._ai_client.generate(member_id, context)
             except Exception as exc:  # pragma: no cover - defensive
                 LOGGER.warning("AI generation raised %s for member %s", exc, member_id)
                 ai_message = None
+            finally:
+                with self._lock:
+                    self._ai_busy = False
 
         final_message = ai_message or message
 
@@ -279,6 +288,9 @@ def camera_loop(pipeline: AdvertisementPipeline, camera_index: int = 0, width: O
 
     try:
         while True:
+            if pipeline.ai_busy():
+                time.sleep(1.0)
+                continue
             ok, frame = capture.read()
             if not ok:
                 LOGGER.warning("Failed to read frame from camera index %s", camera_index)

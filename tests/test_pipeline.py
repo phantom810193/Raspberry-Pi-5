@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import tempfile
 import unittest
 from collections import deque
@@ -33,11 +35,15 @@ class PipelineTests(unittest.TestCase):
     class StubAI:
         def __init__(self) -> None:
             self.outputs = []
+            self.pipeline: AdvertisementPipeline | None = None
+            self.busy_states: list[bool] = []
 
         def enqueue(self, message: str) -> None:
             self.outputs.append(message)
 
         def generate(self, member_id, context):  # pragma: no cover - simple helper
+            if self.pipeline is not None:
+                self.busy_states.append(self.pipeline.ai_busy())
             if self.outputs:
                 return self.outputs.pop(0)
             return None
@@ -65,8 +71,19 @@ class PipelineTests(unittest.TestCase):
         config = PipelineConfig(db_path=self.db_path, simulated_member_ids=("member-001",))
         self.stub_ai.enqueue("AI 生成的專屬廣告")
         pipeline = create_pipeline(config, ai_client=self.stub_ai)
+        self.stub_ai.pipeline = pipeline
         message = pipeline.simulate_member("member-001")
         self.assertEqual(message, "AI 生成的專屬廣告")
+        self.assertFalse(pipeline.ai_busy())
+
+    def test_ai_busy_flag_during_generation(self) -> None:
+        config = PipelineConfig(db_path=self.db_path, simulated_member_ids=("member-001",))
+        self.stub_ai.enqueue("generated")
+        pipeline = create_pipeline(config, ai_client=self.stub_ai)
+        self.stub_ai.pipeline = pipeline
+        pipeline.simulate_member("member-001")
+        self.assertIn(True, self.stub_ai.busy_states)
+        self.assertFalse(pipeline.ai_busy())
 
     def test_idle_reset_restores_waiting_message(self) -> None:
         config = PipelineConfig(
