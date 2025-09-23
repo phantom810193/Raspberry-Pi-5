@@ -19,20 +19,20 @@ DEFAULT_API_KEY = "sk-no-key-required"
 
 
 SYSTEM_PROMPTS = [
-    "你是一位經驗豐富的廣告文案專家。請為折扣促銷，撰寫簡潔、有力的繁體中文廣告詞，並控制在 50 字左右。",
-    "你是一位擅長創意行銷的文案大師。請為促銷折扣活動，設計充滿吸引力與情感共鳴的繁體中文廣告文案，長度約 50 字。",
-    "你是一位專注於顧客利益的行銷顧問。請將促銷折扣轉化為令人心動的價值，並以約 50 字的繁體中文廣告語呈現。",
-    "你是一位專門鎖定年輕族群的行銷顧問。請為折扣促銷，撰寫符合流行語氣、能引發共鳴的繁體中文廣告文案，長度約 50 字回答。",
-    "你是一位熱愛分享的社群小編。請用活潑、具備親和力的繁體中文口吻，為折扣活動撰寫互動式廣告貼文，字數控制在 50 字以內。",
-    "你是一位擅長用故事打動人心的文案作者。請描寫一個顧客的日常困擾，並以促銷折扣作為解決方案，用繁體中文呈現，長度約 50 字。",
+    "你是一位廣告文案專家。請只輸出一段不超過 50 字的繁體中文促銷文案，不要附加說明、標題或建議。",
+    "你是資深行銷總監。僅回傳單句 50 字內的繁體中文折扣口號，禁止出現額外註解。",
+    "你是專注零售促銷的文案顧問。請提供一段 50 字內的繁體中文文案，只要內容本身，不要任何補充。",
+    "你是年輕族群行銷專家。輸出 50 字以內的流行語氣廣告文案，不得附上分析或建議。",
+    "你是活潑親和的社群小編。僅回傳一段不超過 50 字的繁體中文促銷句子，禁止額外說明。",
+    "你是善於情感溝通的文案作者。請給出單段 50 字內的繁體中文折扣文案，不要再寫其他內容。",
 ]
 
 USER_PROMPTS = [
-    "請為一款熱銷{商品}撰寫廣告文案，強調會員獨享、限時買一送一，鼓勵顧客立即行動。",
-    "為{商品}撰寫促銷文案。強調買一箱享 7 折，並使用「囤貨就是省」等標語，激發顧客的購物慾。",
-    "想像你正在為熱銷{商品}撰寫限時特價的文案。請用「即刻搶購」或「僅此一天」等詞語，讓顧客感受到不買可惜。",
-    "為{商品}撰寫組合價文案。強調「{商品}搭配{搭配品項}，早餐輕鬆享」，並標示划算價格，吸引顧客。",
-    "為指定{商品}撰寫促銷文案，強調「會員點數 10 倍送」，讓顧客覺得除了折扣外，還能獲得額外回饋。",
+    "請為熱銷{商品}撰寫會員獨享、限時買一送一的促銷句，50 字內，僅回文案。",
+    "為{商品}撰寫折扣文案，主打買一箱享 7 折，50 字內，不能加入任何說明。",
+    "請輸出 {商品} 限時特價口號，包含「即刻搶購」或「僅此一天」，限 50 字。",
+    "為 {商品} 與 {搭配品項} 組合撰寫優惠句，突出早餐優惠，50 字以內即可。",
+    "請寫一段 {商品} 會員點數 10 倍送的促銷文案，字數不超過 50 字。",
 ]
 
 
@@ -49,7 +49,8 @@ class AIConfig:
     def from_env(cls) -> "AIConfig":
         provider = os.getenv("AI_PROVIDER", "local")
         provider_normalized = provider.strip().lower()
-        default_timeout = 35.0 if provider_normalized in {"local", "llama", "llama_cpp"} else 20.0
+        default_timeout = 35.0 if provider_normalized in {
+            "local", "llama", "llama_cpp"} else 20.0
 
         return cls(
             provider=provider,
@@ -72,7 +73,8 @@ class AIClient:
 
     def __init__(self, config: Optional[AIConfig] = None):
         self.config = config or AIConfig.from_env()
-        self._client = OpenAI(base_url=self.config.base_url, api_key=self.config.api_key)
+        self._client = OpenAI(base_url=self.config.base_url,
+                              api_key=self.config.api_key)
         self._cache: Dict[tuple[str, str], CacheEntry] = {}
 
     def _select_prompts(self, context: Dict[str, str]) -> tuple[str, str]:
@@ -112,10 +114,11 @@ class AIClient:
                     {"role": "user", "content": user_prompt},
                 ],
                 timeout=self.config.timeout,
-                stop=["<end_of_turn>", "文案重點說明", "---"],
+                stop=["<end_of_turn>", "文案重點說明", "---", "<leot_id>"],
             )
         except OpenAIError as exc:
-            LOGGER.warning("AI generation failed for member %s: %s", member_id, exc)
+            LOGGER.warning(
+                "AI generation failed for member %s: %s", member_id, exc)
             return None
 
         choice = response.choices[0] if response.choices else None
