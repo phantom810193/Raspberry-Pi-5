@@ -43,7 +43,7 @@ class AIConfig:
     model: str = DEFAULT_MODEL
     api_key: str = DEFAULT_API_KEY
     timeout: float = 10.0
-    cache_ttl: float = 60.0
+    cache_ttl: float = 120.0
 
     @classmethod
     def from_env(cls) -> "AIConfig":
@@ -58,7 +58,7 @@ class AIConfig:
             model=os.getenv("AI_MODEL", DEFAULT_MODEL),
             api_key=os.getenv("AI_API_KEY", DEFAULT_API_KEY),
             timeout=float(os.getenv("AI_TIMEOUT", str(default_timeout))),
-            cache_ttl=float(os.getenv("AI_CACHE_TTL", "60")),
+            cache_ttl=float(os.getenv("AI_CACHE_TTL", "120")),
         )
 
 
