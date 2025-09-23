@@ -124,6 +124,7 @@ class AIClient:
             if chat_message is not None:
                 message = getattr(chat_message, "content", None)
         if message:
+            message = message.replace("<end_of_turn>", "").strip()
             self._store_cache(key, message)
         return message
 
