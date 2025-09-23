@@ -112,6 +112,7 @@ class AIClient:
                     {"role": "user", "content": user_prompt},
                 ],
                 timeout=self.config.timeout,
+                stop=["<end_of_turn>", "文案重點說明", "---"],
             )
         except OpenAIError as exc:
             LOGGER.warning("AI generation failed for member %s: %s", member_id, exc)
