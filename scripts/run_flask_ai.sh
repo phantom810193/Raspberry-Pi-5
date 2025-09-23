@@ -3,6 +3,11 @@
 
 set -euo pipefail
 
+# Activate virtual environment if available
+if [ -f ".venv/bin/activate" ]; then
+  source .venv/bin/activate
+fi
+
 # Change these values to match your environment.
 export AI_PROVIDER="local"          # or cloud
 export AI_BASE_URL="http://127.0.0.1:8080"
