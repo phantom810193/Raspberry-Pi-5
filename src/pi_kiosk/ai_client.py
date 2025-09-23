@@ -117,7 +117,12 @@ class AIClient:
             LOGGER.warning("AI generation failed for member %s: %s", member_id, exc)
             return None
 
-        message = response.choices[0].message.get("content") if response.choices else None
+        choice = response.choices[0] if response.choices else None
+        message = None
+        if choice is not None:
+            chat_message = getattr(choice, "message", None)
+            if chat_message is not None:
+                message = getattr(chat_message, "content", None)
         if message:
             self._store_cache(key, message)
         return message
