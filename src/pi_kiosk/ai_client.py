@@ -114,7 +114,7 @@ class AIClient:
                     {"role": "user", "content": user_prompt},
                 ],
                 timeout=self.config.timeout,
-                stop=["<end_of_turn>", "文案重點說明", "---", "<leot_id>"],
+                stop=["<end_of_turn>", "文案重點說明", "---", "<|eot_id|>"],
             )
         except OpenAIError as exc:
             LOGGER.warning(
