@@ -23,31 +23,125 @@ HTML_TEMPLATE = """
     <title>智慧廣告看板</title>
     <style>
       body { font-family: 'Noto Sans TC', sans-serif; margin: 0; padding: 0; background: #111; color: #fff; }
-      .container { display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 100vh; text-align: center; }
-      h1 { font-size: 3rem; margin-bottom: 1rem; }
-      p { font-size: 2rem; line-height: 1.5; max-width: 70vw; }
+      .container { display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 100vh; text-align: center; padding: 2rem 1rem; box-sizing: border-box; }
+      .frame-container { display: flex; flex-direction: column; align-items: center; gap: 0.75rem; margin-bottom: 2rem; }
+      .frame { width: min(90vw, 640px); max-height: 480px; object-fit: contain; border-radius: 1rem; background: #000; box-shadow: 0 16px 45px rgba(0, 0, 0, 0.35); }
+      .frame-timestamp { font-size: 1rem; color: #ccc; }
+      .status { font-size: 1.1rem; color: #facc15; min-height: 1.5rem; }
+      .status:not(.active) { visibility: hidden; }
+      h1 { font-size: clamp(2.4rem, 5vw, 3rem); margin-bottom: 1rem; }
+      p { font-size: clamp(1.4rem, 4vw, 2rem); line-height: 1.5; max-width: 70vw; margin: 0; }
       .timestamp { font-size: 1rem; margin-top: 2rem; color: #aaa; }
     </style>
   </head>
   <body>
     <div class="container">
+      <div class="frame-container">
+        <img id="debug-frame" class="frame" alt="最新辨識畫面" hidden />
+        <div class="frame-timestamp" id="frame-timestamp">尚未取得畫面</div>
+        <div class="status" id="status-indicator" aria-live="polite"></div>
+      </div>
       <h1>歡迎光臨！</h1>
       <p id="message">等待辨識中...</p>
       <div class="timestamp" id="meta"></div>
     </div>
     <script>
+      function pollDebugFrame(options = {}) {
+        const { onFrame, onBusy, onError, interval = 1000 } = options;
+        let lastPayload = null;
+        let stopped = false;
+
+        async function fetchFrame() {
+          if (stopped) {
+            return;
+          }
+          try {
+            const response = await fetch('/debug/frame', { cache: 'no-store' });
+            if (!response.ok) {
+              throw new Error('failed to fetch debug frame');
+            }
+            const payload = await response.json();
+            if (payload.ai_busy) {
+              if (typeof onBusy === 'function') {
+                onBusy(payload, lastPayload);
+              }
+              return;
+            }
+            lastPayload = payload;
+            if (typeof onFrame === 'function') {
+              onFrame(payload);
+            }
+          } catch (error) {
+            console.error('failed to fetch debug frame', error);
+            if (typeof onError === 'function') {
+              onError(error);
+            }
+          }
+        }
+
+        fetchFrame();
+        const timer = setInterval(fetchFrame, interval);
+        return {
+          refresh: fetchFrame,
+          stop() {
+            stopped = true;
+            clearInterval(timer);
+          },
+          getLastPayload() {
+            return lastPayload;
+          },
+        };
+      }
+
+      const frameEl = document.getElementById('debug-frame');
+      const frameTimestampEl = document.getElementById('frame-timestamp');
+      const statusEl = document.getElementById('status-indicator');
+      const messageEl = document.getElementById('message');
+      const metaEl = document.getElementById('meta');
+
+      function setBusy(isBusy) {
+        if (isBusy) {
+          statusEl.textContent = 'AI 產生中…請稍候';
+          statusEl.classList.add('active');
+        } else {
+          statusEl.textContent = '';
+          statusEl.classList.remove('active');
+        }
+      }
+
+      pollDebugFrame({
+        onFrame(payload) {
+          setBusy(false);
+          if (payload.image) {
+            frameEl.src = payload.image;
+            frameEl.hidden = false;
+          } else {
+            frameEl.removeAttribute('src');
+            frameEl.hidden = true;
+          }
+          frameTimestampEl.textContent = payload.timestamp ? `影像更新：${payload.timestamp}` : '尚未取得畫面';
+        },
+        onBusy(_payload, lastPayload) {
+          setBusy(true);
+          if (!lastPayload || !lastPayload.timestamp) {
+            frameTimestampEl.textContent = '等待影像更新…';
+          }
+        },
+      });
+
       async function refreshMessage() {
         try {
           const response = await fetch('/api/ad');
           if (!response.ok) return;
           const payload = await response.json();
-          document.getElementById('message').textContent = payload.message;
+          messageEl.textContent = payload.message;
           const metaText = payload.member_id ? `最新會員：${payload.member_id}｜更新時間：${payload.timestamp}` : '';
-          document.getElementById('meta').textContent = metaText;
+          metaEl.textContent = metaText;
         } catch (error) {
           console.error('failed to refresh message', error);
         }
       }
+
       setInterval(refreshMessage, 1000);
       refreshMessage();
     </script>
@@ -68,7 +162,8 @@ DEBUG_TEMPLATE = """
       .panel { background: white; border-radius: 1rem; box-shadow: 0 12px 25px rgba(15, 23, 42, 0.1); padding: 1.5rem; }
       .frame { width: 100%; max-height: 520px; object-fit: contain; border-radius: 0.75rem; background: #1e293b; }
       pre { background: #0f172a; color: #e2e8f0; padding: 1rem; border-radius: 0.75rem; overflow: auto; }
-      .meta { display: flex; justify-content: space-between; align-items: center; margin-top: 1rem; font-size: 0.95rem; color: #475569; }
+      .meta { display: flex; justify-content: space-between; align-items: center; margin-top: 1rem; font-size: 0.95rem; color: #475569; gap: 0.75rem; }
+      .status { color: #c026d3; font-weight: 600; min-height: 1.2rem; }
       button { background: #2563eb; color: white; border: none; border-radius: 999px; padding: 0.6rem 1.2rem; cursor: pointer; font-size: 0.95rem; }
       button:hover { background: #1d4ed8; }
     </style>
@@ -77,9 +172,10 @@ DEBUG_TEMPLATE = """
     <div class="container">
       <h1>攝影機偵測偵錯模式</h1>
       <div class="panel">
-        <img id="debug-frame" class="frame" alt="debug frame" />
+        <img id="debug-frame" class="frame" alt="debug frame" hidden />
         <div class="meta">
           <span id="debug-timestamp">尚未取得畫面</span>
+          <span id="debug-status" class="status" aria-live="polite"></span>
           <button onclick="refreshFrame()">立即更新</button>
         </div>
         <h2>偵測資料</h2>
@@ -87,42 +183,105 @@ DEBUG_TEMPLATE = """
       </div>
     </div>
     <script>
-      async function refreshFrame() {
-        try {
-          const response = await fetch('/debug/frame');
-          if (!response.ok) {
-            throw new Error('request failed');
-          }
-          const payload = await response.json();
-          const frameEl = document.getElementById('debug-frame');
-          const timestampEl = document.getElementById('debug-timestamp');
-          const metadataEl = document.getElementById('debug-metadata');
+      function pollDebugFrame(options = {}) {
+        const { onFrame, onBusy, onError, interval = 1000 } = options;
+        let lastPayload = null;
+        let stopped = false;
 
-          if (payload.image) {
-            frameEl.src = payload.image;
-            timestampEl.textContent = payload.timestamp ? `更新時間：${payload.timestamp}` : '時間未知';
-          } else {
-            frameEl.removeAttribute('src');
-            timestampEl.textContent = '尚未取得畫面';
+        async function fetchFrame() {
+          if (stopped) {
+            return;
           }
+          try {
+            const response = await fetch('/debug/frame', { cache: 'no-store' });
+            if (!response.ok) {
+              throw new Error('failed to fetch debug frame');
+            }
+            const payload = await response.json();
+            if (payload.ai_busy) {
+              if (typeof onBusy === 'function') {
+                onBusy(payload, lastPayload);
+              }
+              return;
+            }
+            lastPayload = payload;
+            if (typeof onFrame === 'function') {
+              onFrame(payload);
+            }
+          } catch (error) {
+            console.error('failed to fetch debug frame', error);
+            if (typeof onError === 'function') {
+              onError(error);
+            }
+          }
+        }
 
-          if (payload.metadata && payload.metadata.length) {
-            const lines = payload.metadata.map((entry, index) => {
-              const distance = entry.distance != null ? entry.distance.toFixed(3) : 'N/A';
-              const source = entry.source || 'unknown';
-              return `#${index + 1} ID：${entry.label}（來源：${source}）\n距離：${distance}\n方框：(${entry.left}, ${entry.top}) - (${entry.right}, ${entry.bottom})`;
-            });
-            metadataEl.textContent = lines.join('\n\n');
-          } else {
-            metadataEl.textContent = '尚無偵測資料';
-          }
-        } catch (error) {
-          console.error(error);
+        fetchFrame();
+        const timer = setInterval(fetchFrame, interval);
+        return {
+          refresh: fetchFrame,
+          stop() {
+            stopped = true;
+            clearInterval(timer);
+          },
+          getLastPayload() {
+            return lastPayload;
+          },
+        };
+      }
+
+      const frameEl = document.getElementById('debug-frame');
+      const timestampEl = document.getElementById('debug-timestamp');
+      const metadataEl = document.getElementById('debug-metadata');
+      const statusEl = document.getElementById('debug-status');
+
+      function updateMetadata(metadata) {
+        if (metadata && metadata.length) {
+          const lines = metadata.map((entry, index) => {
+            const distance = entry.distance != null ? entry.distance.toFixed(3) : 'N/A';
+            const source = entry.source || 'unknown';
+            return `#${index + 1} ID：${entry.label}（來源：${source}）\n距離：${distance}\n方框：(${entry.left}, ${entry.top}) - (${entry.right}, ${entry.bottom})`;
+          });
+          metadataEl.textContent = lines.join('\n\n');
+        } else {
+          metadataEl.textContent = '尚無偵測資料';
         }
       }
 
-      setInterval(refreshFrame, 1000);
-      refreshFrame();
+      const poller = pollDebugFrame({
+        onFrame(payload) {
+          statusEl.textContent = '';
+          if (payload.image) {
+            frameEl.src = payload.image;
+            frameEl.hidden = false;
+          } else {
+            frameEl.removeAttribute('src');
+            frameEl.hidden = true;
+          }
+          timestampEl.textContent = payload.timestamp ? `更新時間：${payload.timestamp}` : '尚未取得畫面';
+          updateMetadata(payload.metadata);
+        },
+        onBusy(_payload, lastPayload) {
+          statusEl.textContent = 'AI 產生中…請稍候';
+          if (lastPayload) {
+            if (lastPayload.timestamp) {
+              timestampEl.textContent = `更新時間：${lastPayload.timestamp}`;
+            }
+            if (lastPayload.image) {
+              frameEl.src = lastPayload.image;
+              frameEl.hidden = false;
+            }
+            updateMetadata(lastPayload.metadata);
+          }
+        },
+        onError() {
+          statusEl.textContent = '無法取得影像';
+        },
+      });
+
+      function refreshFrame() {
+        poller.refresh();
+      }
     </script>
   </body>
 </html>
@@ -200,9 +359,14 @@ def create_app(pipeline: AdvertisementPipeline) -> Flask:
 
     @app.route("/debug/frame")
     def debug_frame() -> Response:
-        frame_bytes, metadata, timestamp = pipeline.debug_snapshot()
+        frame_bytes, metadata, timestamp, ai_busy = pipeline.debug_snapshot()
         if frame_bytes is None:
-            payload = {"image": None, "metadata": metadata, "timestamp": timestamp}
+            payload = {
+                "image": None,
+                "metadata": metadata,
+                "timestamp": timestamp,
+                "ai_busy": ai_busy,
+            }
             response = jsonify(payload)
             response.headers["Cache-Control"] = "no-store"
             return response
@@ -212,6 +376,7 @@ def create_app(pipeline: AdvertisementPipeline) -> Flask:
             "image": f"data:image/jpeg;base64,{encoded}",
             "metadata": metadata,
             "timestamp": timestamp,
+            "ai_busy": ai_busy,
         }
         response = jsonify(payload)
         response.headers["Cache-Control"] = "no-store"

@@ -470,16 +470,17 @@ class AdvertisementPipeline:
             self._debug_metadata = metadata
             self._debug_timestamp = datetime.now(timezone.utc)
 
-    def debug_snapshot(self) -> Tuple[Optional[bytes], List[Dict[str, Any]], Optional[str]]:
+    def debug_snapshot(self) -> Tuple[Optional[bytes], List[Dict[str, Any]], Optional[str], bool]:
         with self._lock:
+            busy = self._ai_busy
             if self._debug_frame is None:
-                return None, [], None
+                return None, [], None, busy
             timestamp = (
                 self._debug_timestamp.isoformat(timespec="milliseconds")
                 if self._debug_timestamp is not None
                 else None
             )
-            return self._debug_frame, list(self._debug_metadata), timestamp
+            return self._debug_frame, list(self._debug_metadata), timestamp, busy
 
     def _encode_snapshot(self, frame: np.ndarray, match: FaceMatch) -> Optional[bytes]:
         location = match.location
