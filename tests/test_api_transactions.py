@@ -2,9 +2,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import numpy as np
+
 from pi_kiosk import database
+from pi_kiosk.detection import FaceLocation, FaceMatch
 from pi_kiosk.flask_app import create_app
-from pi_kiosk.pipeline import PipelineConfig, create_pipeline
+from pi_kiosk.pipeline import AdvertisementPipeline, PipelineConfig, create_pipeline
 
 
 class StubAI:
@@ -15,6 +18,29 @@ class StubAI:
         if self.should_fail:
             raise TimeoutError("simulated timeout")
         return None
+
+
+class FaceIdentifierStub:
+    def __init__(self, outputs):
+        self.outputs = list(outputs)
+        self._classifier = None
+        self._last = []
+
+    def identify_faces(self, image):  # pragma: no cover - simple helper
+        if self.outputs:
+            self._last = list(self.outputs.pop(0))
+        else:
+            self._last = []
+        return list(self._last)
+
+    def identify(self, image):  # pragma: no cover - compatibility
+        return [match.label for match in self._last]
+
+    def set_classifier(self, classifier):  # pragma: no cover - simple helper
+        self._classifier = classifier
+
+    def get_classifier(self):  # pragma: no cover
+        return self._classifier
 
 
 class TransactionApiTests(unittest.TestCase):
@@ -89,6 +115,61 @@ class TransactionApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.get_json()
         self.assertEqual(data["inserted"], 1)
+
+
+class FaceFeatureApiTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db_path = Path(self.tmp.name) / "face-api.db"
+        config = PipelineConfig(
+            db_path=self.db_path,
+            simulated_member_ids=None,
+            cooldown_seconds=0,
+            idle_reset_seconds=None,
+            use_trained_classifier=False,
+        )
+        self.stub_ai = StubAI()
+        self.identifier = FaceIdentifierStub([])
+        self.pipeline = AdvertisementPipeline(config, identifier=self.identifier, ai_client=self.stub_ai)
+        self.app = create_app(self.pipeline)
+        self.client = self.app.test_client()
+
+    def tearDown(self) -> None:
+        self.pipeline.conn.close()
+        self.tmp.cleanup()
+
+    def test_create_and_delete_face_feature(self) -> None:
+        descriptor = np.linspace(0.0, 1.0, 128, dtype=np.float32).tolist()
+        response = self.client.post(
+            "/api/face-features",
+            json={"member_id": "member-api", "descriptor": descriptor},
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertIn("member-api", self.pipeline.list_face_feature_ids())
+
+        list_response = self.client.get("/api/face-features")
+        self.assertEqual(list_response.status_code, 200)
+        self.assertIn("member-api", list_response.get_json().get("members", []))
+
+        delete_response = self.client.delete("/api/face-features/member-api")
+        self.assertEqual(delete_response.status_code, 200)
+        self.assertNotIn("member-api", self.pipeline.list_face_feature_ids())
+        list_after_delete = self.client.get("/api/face-features")
+        self.assertNotIn("member-api", list_after_delete.get_json().get("members", []))
+
+    def test_face_feature_validation_errors(self) -> None:
+        response = self.client.post(
+            "/api/face-features",
+            json={"member_id": "", "descriptor": [0.0] * 128},
+        )
+        self.assertEqual(response.status_code, 400)
+
+        bad_descriptor = self.client.post(
+            "/api/face-features",
+            json={"member_id": "member-bad", "descriptor": [1, 2, 3]},
+        )
+        self.assertEqual(bad_descriptor.status_code, 400)
+
 
 
 if __name__ == "__main__":

@@ -2,6 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import numpy as np
+
 from pi_kiosk import database
 
 
@@ -28,6 +30,23 @@ class DatabaseTests(unittest.TestCase):
         cursor = self.conn.execute("SELECT COUNT(*) FROM members")
         (count,) = cursor.fetchone()
         self.assertEqual(count, 1)
+
+    def test_face_feature_lifecycle(self) -> None:
+        descriptor = np.ones(128, dtype=np.float32).tobytes()
+        created_at = "2025-01-01T00:00:00"
+        database.register_member(self.conn, "member-xyz", created_at)
+        database.store_face_feature(self.conn, "member-xyz", descriptor, created_at)
+
+        row = database.get_face_feature(self.conn, "member-xyz")
+        self.assertIsNotNone(row)
+        self.assertEqual(row["member_id"], "member-xyz")
+
+        ids = database.list_face_feature_ids(self.conn)
+        self.assertIn("member-xyz", ids)
+
+        removed = database.delete_face_feature(self.conn, "member-xyz")
+        self.assertTrue(removed)
+        self.assertIsNone(database.get_face_feature(self.conn, "member-xyz"))
 
 
 if __name__ == "__main__":  # pragma: no cover

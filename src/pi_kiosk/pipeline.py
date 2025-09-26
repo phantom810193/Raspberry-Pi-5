@@ -1,6 +1,7 @@
 """End-to-end pipeline orchestrating detection, persistence and advert generation."""
 from __future__ import annotations
 
+import io
 import logging
 import threading
 import time
@@ -8,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from glob import glob
 from pathlib import Path
-from typing import Dict, Iterable, Optional, Protocol, Tuple
+from typing import Dict, Iterable, List, Optional, Protocol, Tuple
 
 try:
     import cv2  # type: ignore
@@ -22,7 +23,7 @@ import numpy as np
 
 from . import advertising, database
 from .ai_client import AIClient, build_context_from_transactions
-from .detection import DetectionConfig, FaceIdentifier, SimulatedFaceIdentifier
+from .detection import ClassifierModel, DetectionConfig, FaceIdentifier, FaceMatch, SimulatedFaceIdentifier
 
 
 FOURCC = "YUYV"
@@ -49,6 +50,10 @@ class PipelineConfig:
     idle_reset_seconds: Optional[int] = 2
     simulated_member_ids: Optional[Tuple[str, ...]] = None
     classifier_path: Optional[Path] = None
+    use_trained_classifier: bool = True
+    auto_enroll_first_face: bool = False
+    auto_enroll_threshold: float = 0.45
+    store_face_snapshot: bool = False
 
 
 class AdvertisementPipeline:
@@ -69,8 +74,8 @@ class AdvertisementPipeline:
             if config.model_dir is None:
                 raise ValueError("model_dir must be specified when using the real FaceIdentifier")
             model_dir = Path(config.model_dir)
-            classifier_path = config.classifier_path
-            if classifier_path is None:
+            classifier_path = config.classifier_path if config.use_trained_classifier else None
+            if config.use_trained_classifier and classifier_path is None:
                 default_classifier = model_dir / "face_classifier.pkl"
                 if default_classifier.exists():
                     classifier_path = default_classifier
@@ -81,6 +86,20 @@ class AdvertisementPipeline:
             )
             identifier = FaceIdentifier(detection_config)
         self.identifier = identifier
+
+        self._supports_face_identifier = hasattr(self.identifier, "identify_faces") and hasattr(self.identifier, "set_classifier")
+        self._base_classifier: Optional[ClassifierModel] = None
+        self._registered_face_ids: set[str] = set()
+        self._auto_enroll_done = False
+
+        if self._supports_face_identifier:
+            get_classifier = getattr(self.identifier, "get_classifier", lambda: None)
+            base_classifier = get_classifier()
+            if base_classifier is not None and self.config.use_trained_classifier:
+                self._base_classifier = self._clone_classifier(base_classifier)
+            if not self.config.use_trained_classifier and hasattr(self.identifier, "set_classifier"):
+                self.identifier.set_classifier(None)
+            self._reload_classifier_from_db()
 
         self._latest_message = "等待辨識中..."
         self._latest_id: Optional[str] = None
@@ -97,7 +116,13 @@ class AdvertisementPipeline:
     def process_frame(self, frame: np.ndarray) -> Optional[str]:
         """Process a frame from the camera returning a new advert message if any."""
         current_time = time.time()
-        member_ids = list(self.identifier.identify(frame))
+        if self._supports_face_identifier:
+            matches = self.identifier.identify_faces(frame)
+            self._maybe_auto_enroll(matches, frame)
+            member_ids = [match.label for match in matches]
+        else:
+            matches = []
+            member_ids = list(self.identifier.identify(frame))
         if member_ids:
             with self._lock:
                 self._last_detection_time = current_time
@@ -193,6 +218,150 @@ class AdvertisementPipeline:
             self._latest_id = None
             self._latest_timestamp = None
             self._last_detection_time = None
+
+    def add_face_feature(
+        self,
+        member_id: str,
+        descriptor: np.ndarray,
+        *,
+        snapshot: Optional[bytes] = None,
+        created_at: Optional[str] = None,
+    ) -> None:
+        """Persist a facial descriptor and refresh the active classifier."""
+
+        if not self._supports_face_identifier:
+            raise RuntimeError("Face feature management requires a FaceIdentifier")
+
+        vector = np.asarray(descriptor, dtype=np.float32)
+        if vector.ndim != 1:
+            raise ValueError("descriptor must be a 1D array")
+        created = created_at or datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+        database.register_member(self.conn, member_id, created)
+        database.store_face_feature(self.conn, member_id, vector.tobytes(), created, snapshot)
+        self._reload_classifier_from_db()
+
+    def remove_face_feature(self, member_id: str) -> bool:
+        """Remove the descriptor for ``member_id``; returns True if deleted."""
+
+        if not self._supports_face_identifier:
+            return False
+        removed = database.delete_face_feature(self.conn, member_id)
+        if removed:
+            self._reload_classifier_from_db()
+        return removed
+
+    def list_face_feature_ids(self) -> Tuple[str, ...]:
+        """Return the member IDs that currently have stored descriptors."""
+
+        if not self._supports_face_identifier:
+            return tuple()
+        return tuple(database.list_face_feature_ids(self.conn))
+
+    @staticmethod
+    def _clone_classifier(model: ClassifierModel) -> ClassifierModel:
+        return ClassifierModel(
+            labels=list(model.labels),
+            embeddings=model.embeddings.astype(np.float32, copy=True),
+            distance_threshold=float(model.distance_threshold),
+        )
+
+    def _reload_classifier_from_db(self) -> None:
+        if not self._supports_face_identifier:
+            return
+
+        rows = database.get_face_features(self.conn)
+        labels: List[str] = []
+        descriptors: List[np.ndarray] = []
+        for row in rows:
+            member_id = str(row["member_id"])
+            descriptor_bytes = row["descriptor"]
+            if descriptor_bytes is None:
+                continue
+            vector = np.frombuffer(descriptor_bytes, dtype=np.float32)
+            if vector.size == 0:
+                continue
+            labels.append(member_id)
+            descriptors.append(vector)
+
+        self._registered_face_ids = set(labels)
+        self._auto_enroll_done = bool(self._registered_face_ids)
+
+        db_classifier: Optional[ClassifierModel] = None
+        if descriptors:
+            stacked = np.stack(descriptors).astype(np.float32)
+            db_classifier = ClassifierModel(
+                labels=list(labels),
+                embeddings=stacked,
+                distance_threshold=float(self.config.auto_enroll_threshold),
+            )
+
+        active_classifier: Optional[ClassifierModel]
+        if self.config.use_trained_classifier and self._base_classifier is not None:
+            base_clone = self._clone_classifier(self._base_classifier)
+            if db_classifier is not None:
+                active_classifier = ClassifierModel(
+                    labels=list(base_clone.labels) + list(db_classifier.labels),
+                    embeddings=np.vstack([base_clone.embeddings, db_classifier.embeddings]).astype(np.float32),
+                    distance_threshold=float(base_clone.distance_threshold),
+                )
+            else:
+                active_classifier = base_clone
+        else:
+            active_classifier = db_classifier
+
+        self.identifier.set_classifier(active_classifier)
+
+    def _maybe_auto_enroll(self, matches: List[FaceMatch], frame: np.ndarray) -> None:
+        if not self.config.auto_enroll_first_face:
+            return
+        if not matches:
+            return
+        if self._auto_enroll_done:
+            return
+
+        first = matches[0]
+        member_id = str(first.label)
+        if member_id in self._registered_face_ids:
+            self._auto_enroll_done = True
+            return
+
+        descriptor = first.descriptor
+        if descriptor.ndim != 1:
+            return
+
+        created_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        database.register_member(self.conn, member_id, created_at)
+
+        snapshot_bytes: Optional[bytes] = None
+        if self.config.store_face_snapshot:
+            snapshot_bytes = self._encode_snapshot(frame, first)
+
+        database.store_face_feature(self.conn, member_id, descriptor.astype(np.float32).tobytes(), created_at, snapshot_bytes)
+        self._reload_classifier_from_db()
+        self._auto_enroll_done = True
+
+    def _encode_snapshot(self, frame: np.ndarray, match: FaceMatch) -> Optional[bytes]:
+        location = match.location
+        height, width = frame.shape[:2]
+        top = max(int(location.top), 0)
+        bottom = min(int(location.bottom), height)
+        left = max(int(location.left), 0)
+        right = min(int(location.right), width)
+        if top >= bottom or left >= right:
+            return None
+        face_region = frame[top:bottom, left:right]
+        if face_region.size == 0:
+            return None
+
+        try:
+            from PIL import Image
+        except ImportError:  # pragma: no cover - pillow should be available with face_recognition
+            return None
+
+        with io.BytesIO() as buffer:
+            Image.fromarray(face_region).save(buffer, format="JPEG")
+            return buffer.getvalue()
 
 
 def create_pipeline(config: PipelineConfig, ai_client: Optional[AIClient] = None) -> AdvertisementPipeline:

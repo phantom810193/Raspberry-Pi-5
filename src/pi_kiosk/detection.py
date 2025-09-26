@@ -59,6 +59,27 @@ class ClassifierModel:
         return None
 
 
+@dataclass
+class FaceLocation:
+    """Bounding box for a detected face (top, right, bottom, left)."""
+
+    top: int
+    right: int
+    bottom: int
+    left: int
+
+
+@dataclass
+class FaceMatch:
+    """Descriptor, bounding box and identification metadata for a face."""
+
+    descriptor: np.ndarray
+    location: FaceLocation
+    label: str
+    matched: bool
+    distance: Optional[float]
+
+
 class ModelMissingError(RuntimeError):
     """Raised when a required model file could not be found."""
 
@@ -131,34 +152,84 @@ class FaceIdentifier:
         LOGGER.info("Loaded classifier with %d identities from %s", len(labels), resolved)
         return ClassifierModel(labels=labels, embeddings=embeddings, distance_threshold=threshold)
 
-    def encode_faces(self, image: np.ndarray) -> List[np.ndarray]:
-        """Return 128D descriptors for the detected faces in ``image``."""
-        detections = self._detector(image, 1)
-        descriptors: List[np.ndarray] = []
+    def get_classifier(self) -> Optional[ClassifierModel]:
+        """Return the active classifier, if any."""
 
+        return self._classifier
+
+    def set_classifier(self, classifier: Optional[ClassifierModel]) -> None:
+        """Replace the active classifier (can be set to ``None``)."""
+
+        self._classifier = classifier
+
+    @staticmethod
+    def _rect_to_location(rect) -> FaceLocation:
+        return FaceLocation(
+            top=int(rect.top()),
+            right=int(rect.right()),
+            bottom=int(rect.bottom()),
+            left=int(rect.left()),
+        )
+
+    def _encode_faces(self, image: np.ndarray) -> List[FaceMatch]:
+        detections = self._detector(image, 1)
+        matches: List[FaceMatch] = []
         for detection in detections:
-            # ``cnn_face_detection_model_v1`` returns mmod rectangles
             rect = detection.rect if hasattr(detection, "rect") else detection
             shape = self._shape_predictor(image, rect)
             descriptor = self._face_recognition.compute_face_descriptor(image, shape)
-            descriptors.append(np.array(descriptor))
-        return descriptors
+            vector = np.array(descriptor, dtype=np.float32)
+            location = self._rect_to_location(rect)
+
+            label: Optional[str] = None
+            matched = False
+            distance: Optional[float] = None
+
+            if self._classifier is not None:
+                descriptor_view = vector.astype(np.float32, copy=False)
+                distances = np.linalg.norm(self._classifier.embeddings - descriptor_view, axis=1)
+                if distances.size:
+                    best_index = int(np.argmin(distances))
+                    candidate_distance = float(distances[best_index])
+                    if candidate_distance <= self._classifier.distance_threshold:
+                        label = self._classifier.labels[best_index]
+                        matched = True
+                        distance = candidate_distance
+                    else:
+                        distance = candidate_distance
+
+            if label is None:
+                label = hash_descriptor(vector)
+
+            matches.append(
+                FaceMatch(
+                    descriptor=vector,
+                    location=location,
+                    label=label,
+                    matched=matched,
+                    distance=distance,
+                )
+            )
+        if matches:
+            LOGGER.debug("Encoded %d faces", len(matches))
+        return matches
+
+    def encode_faces(self, image: np.ndarray) -> List[np.ndarray]:
+        """Return 128D descriptors for the detected faces in ``image``."""
+        return [match.descriptor for match in self._encode_faces(image)]
 
     def identify(self, image: np.ndarray) -> List[str]:
         """Return anonymous IDs for the faces detected in ``image``."""
-        ids: List[str] = []
-        for descriptor in self.encode_faces(image):
-            label: Optional[str] = None
-            if self._classifier is not None:
-                label = self._classifier.match(descriptor)
-                if label is None:
-                    LOGGER.debug("Descriptor unmatched; fall back to hashed ID")
-            if label is None:
-                label = hash_descriptor(descriptor)
-            ids.append(label)
+        matches = self.identify_faces(image)
+        ids = [match.label for match in matches]
         if ids:
             LOGGER.debug("Identified faces: %s", ids)
         return ids
+
+    def identify_faces(self, image: np.ndarray) -> List[FaceMatch]:
+        """Return face matches including descriptors and bounding boxes."""
+
+        return self._encode_faces(image)
 
 
 class SimulatedFaceIdentifier:

@@ -3,10 +3,14 @@ from __future__ import annotations
 
 import argparse
 import threading
+import base64
+import binascii
 from pathlib import Path
 from typing import Optional, Sequence
 
 from flask import Flask, Response, jsonify, render_template_string, request
+
+import numpy as np
 
 from .database import MemberNotFoundError
 from .pipeline import AdvertisementPipeline, PipelineConfig, camera_loop, create_pipeline
@@ -117,6 +121,63 @@ def create_app(pipeline: AdvertisementPipeline) -> Flask:
 
         return jsonify({"member_id": member_id, "inserted": inserted}), 200
 
+    @app.route("/api/face-features", methods=["POST"])
+    def api_add_face_feature() -> Response:
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify({"error": "Invalid JSON body"}), 400
+
+        raw_member_id = payload.get("member_id")
+        if raw_member_id is None:
+            return jsonify({"error": "member_id is required"}), 400
+        member_id = str(raw_member_id).strip()
+        if not member_id:
+            return jsonify({"error": "member_id cannot be empty"}), 400
+
+        descriptor_payload = payload.get("descriptor")
+        if not isinstance(descriptor_payload, list):
+            return jsonify({"error": "descriptor must be a list of floats"}), 400
+        try:
+            descriptor = np.array(descriptor_payload, dtype=np.float32)
+        except (TypeError, ValueError):
+            return jsonify({"error": "descriptor must contain numeric values"}), 400
+        if descriptor.ndim != 1 or descriptor.size != 128:
+            return jsonify({"error": "descriptor must be a 1D array of length 128"}), 400
+
+        snapshot_data = payload.get("snapshot")
+        snapshot: Optional[bytes] = None
+        if snapshot_data is not None:
+            if not isinstance(snapshot_data, str):
+                return jsonify({"error": "snapshot must be a base64 string"}), 400
+            try:
+                snapshot = base64.b64decode(snapshot_data, validate=True)
+            except (binascii.Error, ValueError):
+                return jsonify({"error": "snapshot is not valid base64"}), 400
+
+        try:
+            pipeline.add_face_feature(member_id, descriptor, snapshot=snapshot)
+        except RuntimeError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        return jsonify({"member_id": member_id, "stored": True}), 201
+
+    @app.route("/api/face-features/<member_id>", methods=["DELETE"])
+    def api_delete_face_feature(member_id: str) -> Response:
+        member_id = member_id.strip()
+        if not member_id:
+            return jsonify({"error": "member_id cannot be empty"}), 400
+        removed = pipeline.remove_face_feature(member_id)
+        if not removed:
+            return jsonify({"error": "member_id not found"}), 404
+        return jsonify({"member_id": member_id, "removed": True}), 200
+
+    @app.route("/api/face-features", methods=["GET"])
+    def api_list_face_features() -> Response:
+        member_ids = pipeline.list_face_feature_ids()
+        return jsonify({"members": list(member_ids)})
+
     return app
 
 
@@ -159,6 +220,27 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         default=2,
         help="Seconds of inactivity before resetting to the waiting message (0 disables)",
     )
+    parser.add_argument(
+        "--no-trained-classifier",
+        action="store_true",
+        help="Disable loading pre-trained classifier artifacts",
+    )
+    parser.add_argument(
+        "--auto-enroll-first-face",
+        action="store_true",
+        help="Automatically store the first detected face descriptor to the database",
+    )
+    parser.add_argument(
+        "--auto-enroll-threshold",
+        type=float,
+        default=0.45,
+        help="Distance threshold used for descriptors stored via auto-enroll",
+    )
+    parser.add_argument(
+        "--store-face-snapshot",
+        action="store_true",
+        help="Persist a JPEG snapshot of the enrolled face in the database",
+    )
     return parser.parse_args(argv)
 
 
@@ -171,6 +253,10 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         cooldown_seconds=args.cooldown_seconds,
         idle_reset_seconds=args.idle_reset_seconds if args.idle_reset_seconds > 0 else None,
         classifier_path=args.classifier,
+        use_trained_classifier=not args.no_trained_classifier,
+        auto_enroll_first_face=args.auto_enroll_first_face,
+        auto_enroll_threshold=args.auto_enroll_threshold,
+        store_face_snapshot=args.store_face_snapshot,
     )
     pipeline = create_pipeline(config)
     app = create_app(pipeline)

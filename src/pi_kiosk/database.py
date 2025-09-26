@@ -25,6 +25,16 @@ CREATE TABLE IF NOT EXISTS transactions (
 );
 """
 
+FACE_FEATURES_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS face_features (
+    member_id TEXT PRIMARY KEY,
+    descriptor BLOB NOT NULL,
+    created_at TEXT NOT NULL,
+    snapshot BLOB,
+    FOREIGN KEY(member_id) REFERENCES members(id)
+);
+"""
+
 SAMPLE_TRANSACTIONS: Tuple[Tuple[str, str, float, str], ...] = (
     ("member-001", "有機牛奶", 85.0, "2024-05-02T09:30:00"),
     ("member-001", "手工優格", 120.0, "2024-05-15T14:15:00"),
@@ -53,6 +63,7 @@ def initialize_db(conn: Connection) -> None:
     with conn:
         conn.execute(MEMBER_TABLE_SQL)
         conn.execute(TRANSACTION_TABLE_SQL)
+        conn.execute(FACE_FEATURES_TABLE_SQL)
 
 
 def ensure_sample_transactions(conn: Connection, sample_transactions: Iterable[Tuple[str, str, float, str]] = SAMPLE_TRANSACTIONS) -> None:
@@ -123,3 +134,53 @@ def insert_transactions(conn: Connection, member_id: str, records: Iterable[Tupl
             [(member_id, item, amount, timestamp) for item, amount, timestamp in prepared],
         )
     return len(prepared)
+
+
+def store_face_feature(
+    conn: Connection,
+    member_id: str,
+    descriptor: bytes,
+    created_at: str,
+    snapshot: bytes | None = None,
+) -> None:
+    """Insert or replace a facial descriptor entry for ``member_id``."""
+
+    with conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO face_features (member_id, descriptor, created_at, snapshot) VALUES (?, ?, ?, ?)",
+            (member_id, descriptor, created_at, snapshot),
+        )
+
+
+def delete_face_feature(conn: Connection, member_id: str) -> bool:
+    """Delete the stored feature for ``member_id`` returning True if one was removed."""
+
+    with conn:
+        cursor = conn.execute("DELETE FROM face_features WHERE member_id = ?", (member_id,))
+    return cursor.rowcount > 0
+
+
+def get_face_feature(conn: Connection, member_id: str) -> sqlite3.Row | None:
+    """Return the face feature row for ``member_id`` if present."""
+
+    cursor = conn.execute(
+        "SELECT member_id, descriptor, created_at, snapshot FROM face_features WHERE member_id = ?",
+        (member_id,),
+    )
+    return cursor.fetchone()
+
+
+def get_face_features(conn: Connection) -> List[sqlite3.Row]:
+    """Return all stored face features ordered by creation time."""
+
+    cursor = conn.execute(
+        "SELECT member_id, descriptor, created_at, snapshot FROM face_features ORDER BY created_at ASC",
+    )
+    return list(cursor.fetchall())
+
+
+def list_face_feature_ids(conn: Connection) -> List[str]:
+    """Return the member IDs that currently have stored facial descriptors."""
+
+    cursor = conn.execute("SELECT member_id FROM face_features ORDER BY member_id ASC")
+    return [row[0] for row in cursor.fetchall()]

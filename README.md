@@ -82,6 +82,18 @@ models/
    產生的 `models/face_classifier.pkl` 會同時儲存平均特徵向量與辨識閾值。若需匿名化，可在第二步加上 `--hash-labels`。
 3. 將 `models/face_classifier.pkl` 與 dlib 預訓練檔一併複製到 Raspberry Pi 的 `models/` 目錄，即可直接推論。
 
+### 5. 自動註冊與臉部特徵管理
+
+- 執行 `pi_kiosk.flask_app` 時可透過下列旗標調整臉部特徵行為：
+  - `--auto-enroll-first-face`：首次偵測到臉部時，自動將特徵向量與（可選）裁切後快照寫入 SQLite。
+  - `--auto-enroll-threshold`：套用於自動註冊向量的距離門檻，預設 0.45。
+  - `--store-face-snapshot`：啟用後會將第一張臉的 JPEG 快照以 BLOB 形式儲存。
+  - `--no-trained-classifier`：僅使用資料庫中的即時註冊特徵，不載入 `models/face_classifier.pkl`。
+- 管理端可透過 REST API 操作臉部特徵：
+  - `GET /api/face-features`：列出目前資料庫中的成員 ID。
+  - `POST /api/face-features`：傳入 `member_id` 與 128 維 `descriptor`（可選擇附上 base64 編碼的 `snapshot`）以新增/覆蓋特徵。
+  - `DELETE /api/face-features/<member_id>`：移除指定成員的特徵資料。
+
 ## 執行方式
 
 ### 1. 模擬模式（無攝影機，展示流程）
