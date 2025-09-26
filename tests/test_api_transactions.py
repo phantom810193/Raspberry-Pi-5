@@ -151,6 +151,10 @@ class FaceFeatureApiTests(unittest.TestCase):
         self.assertEqual(list_response.status_code, 200)
         self.assertIn("member-api", list_response.get_json().get("members", []))
 
+        member_row = database.get_member(self.pipeline.conn, "member-api")
+        self.assertIsNotNone(member_row)
+        self.assertEqual(member_row["source"], "api")
+
         delete_response = self.client.delete("/api/face-features/member-api")
         self.assertEqual(delete_response.status_code, 200)
         self.assertNotIn("member-api", self.pipeline.list_face_feature_ids())

@@ -9,7 +9,7 @@ from unittest import mock
 import numpy as np
 
 from pi_kiosk import database
-from pi_kiosk.detection import FaceLocation, FaceMatch
+from pi_kiosk.detection import ClassifierModel, FaceLocation, FaceMatch
 from pi_kiosk.pipeline import AdvertisementPipeline, PipelineConfig, create_pipeline
 
 
@@ -223,6 +223,9 @@ class PipelineTests(unittest.TestCase):
         self.assertIsNotNone(row)
         self.assertIn("member-auto", pipeline.list_face_feature_ids())
         self.assertIsNotNone(identifier.get_classifier())
+        member_row = database.get_member(pipeline.conn, "member-auto")
+        self.assertIsNotNone(member_row)
+        self.assertEqual(member_row["source"], "auto_enroll")
 
     def test_manual_face_feature_management(self) -> None:
         config = PipelineConfig(
@@ -240,11 +243,47 @@ class PipelineTests(unittest.TestCase):
 
         self.assertIn("member-new", pipeline.list_face_feature_ids())
         self.assertIsNotNone(identifier.get_classifier())
-        self.assertIsNotNone(database.get_member(pipeline.conn, "member-new"))
+        member_row = database.get_member(pipeline.conn, "member-new")
+        self.assertIsNotNone(member_row)
+        self.assertEqual(member_row["source"], "api")
 
         removed = pipeline.remove_face_feature("member-new")
         self.assertTrue(removed)
         self.assertNotIn("member-new", pipeline.list_face_feature_ids())
+
+    def test_trained_classifier_updates_member_source(self) -> None:
+        descriptor = np.zeros(128, dtype=np.float32)
+        match = FaceMatch(
+            descriptor=descriptor,
+            location=FaceLocation(top=0, right=4, bottom=4, left=0),
+            label="member-trained",
+            matched=True,
+            distance=0.3,
+        )
+
+        base_classifier = ClassifierModel(
+            labels=["member-trained"],
+            embeddings=np.stack([descriptor]),
+            distance_threshold=0.6,
+        )
+
+        identifier = FaceIdentifierStub([[match]])
+        identifier.set_classifier(base_classifier)
+        config = PipelineConfig(
+            db_path=self.db_path,
+            simulated_member_ids=None,
+            cooldown_seconds=0,
+            idle_reset_seconds=None,
+            use_trained_classifier=True,
+        )
+        pipeline = AdvertisementPipeline(config, identifier=identifier, ai_client=self.stub_ai)
+        frame = np.zeros((4, 4, 3), dtype=np.uint8)
+
+        pipeline.process_frame(frame)
+
+        member_row = database.get_member(pipeline.conn, "member-trained")
+        self.assertIsNotNone(member_row)
+        self.assertEqual(member_row["source"], "trained")
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

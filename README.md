@@ -93,6 +93,11 @@ models/
   - `GET /api/face-features`：列出目前資料庫中的成員 ID。
   - `POST /api/face-features`：傳入 `member_id` 與 128 維 `descriptor`（可選擇附上 base64 編碼的 `snapshot`）以新增/覆蓋特徵。
   - `DELETE /api/face-features/<member_id>`：移除指定成員的特徵資料。
+- `members` 表新增 `source`、`updated_at` 欄位，用於標記身分來源：
+  - 預訓練模型辨識：`trained`
+  - 首次自動註冊：`auto_enroll`
+  - 透過 REST API 新增：`api`
+  - 其他（未比對成功）：維持 `unknown`
 
 ## 執行方式
 

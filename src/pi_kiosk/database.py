@@ -10,7 +10,9 @@ Connection = sqlite3.Connection
 MEMBER_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS members (
     id TEXT PRIMARY KEY,
-    first_seen TEXT NOT NULL
+    first_seen TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'unknown',
+    updated_at TEXT NOT NULL
 );
 """
 
@@ -64,7 +66,23 @@ def initialize_db(conn: Connection) -> None:
         conn.execute(MEMBER_TABLE_SQL)
         conn.execute(TRANSACTION_TABLE_SQL)
         conn.execute(FACE_FEATURES_TABLE_SQL)
+    _ensure_member_metadata_columns(conn)
 
+
+def _ensure_member_metadata_columns(conn: Connection) -> None:
+    """Ensure ``members`` table has source/updated_at columns for legacy databases."""
+
+    cursor = conn.execute("PRAGMA table_info(members)")
+    columns = {row[1] for row in cursor.fetchall()}
+
+    if "source" not in columns:
+        with conn:
+            conn.execute("ALTER TABLE members ADD COLUMN source TEXT NOT NULL DEFAULT 'unknown'")
+
+    if "updated_at" not in columns:
+        with conn:
+            conn.execute("ALTER TABLE members ADD COLUMN updated_at TEXT")
+            conn.execute("UPDATE members SET updated_at = first_seen WHERE updated_at IS NULL OR updated_at = ''")
 
 def ensure_sample_transactions(conn: Connection, sample_transactions: Iterable[Tuple[str, str, float, str]] = SAMPLE_TRANSACTIONS) -> None:
     """Populate the ``transactions`` table with demo rows when empty."""
@@ -80,18 +98,31 @@ def ensure_sample_transactions(conn: Connection, sample_transactions: Iterable[T
         )
 
 
-def register_member(conn: Connection, member_id: str, first_seen: str) -> None:
+def register_member(
+    conn: Connection,
+    member_id: str,
+    first_seen: str,
+    *,
+    source: str | None = None,
+    updated_at: str | None = None,
+) -> None:
     """Insert the member if it does not exist."""
+
+    member_source = source or "unknown"
+    updated_value = updated_at or first_seen
     with conn:
         conn.execute(
-            "INSERT OR IGNORE INTO members (id, first_seen) VALUES (?, ?)",
-            (member_id, first_seen),
+            "INSERT OR IGNORE INTO members (id, first_seen, source, updated_at) VALUES (?, ?, ?, ?)",
+            (member_id, first_seen, member_source, updated_value),
         )
 
 
 def get_member(conn: Connection, member_id: str) -> sqlite3.Row | None:
     """Return the member row if present."""
-    cursor = conn.execute("SELECT id, first_seen FROM members WHERE id = ?", (member_id,))
+    cursor = conn.execute(
+        "SELECT id, first_seen, source, updated_at FROM members WHERE id = ?",
+        (member_id,),
+    )
     return cursor.fetchone()
 
 
@@ -136,6 +167,34 @@ def insert_transactions(conn: Connection, member_id: str, records: Iterable[Tupl
     return len(prepared)
 
 
+def update_member_metadata(
+    conn: Connection,
+    member_id: str,
+    *,
+    source: str | None = None,
+    updated_at: str | None = None,
+) -> None:
+    """Update member source and/or timestamp."""
+
+    assignments: list[str] = []
+    params: list[str] = []
+
+    if source is not None:
+        assignments.append("source = ?")
+        params.append(source)
+
+    if updated_at is not None:
+        assignments.append("updated_at = ?")
+        params.append(updated_at)
+
+    if not assignments:
+        return
+
+    params.append(member_id)
+    with conn:
+        conn.execute(f"UPDATE members SET {', '.join(assignments)} WHERE id = ?", params)
+
+
 def store_face_feature(
     conn: Connection,
     member_id: str,
@@ -174,7 +233,12 @@ def get_face_features(conn: Connection) -> List[sqlite3.Row]:
     """Return all stored face features ordered by creation time."""
 
     cursor = conn.execute(
-        "SELECT member_id, descriptor, created_at, snapshot FROM face_features ORDER BY created_at ASC",
+        """
+        SELECT f.member_id, f.descriptor, f.created_at, f.snapshot, m.source
+        FROM face_features AS f
+        LEFT JOIN members AS m ON m.id = f.member_id
+        ORDER BY f.created_at ASC
+        """,
     )
     return list(cursor.fetchall())
 

@@ -90,7 +90,9 @@ class AdvertisementPipeline:
         self._supports_face_identifier = hasattr(self.identifier, "identify_faces") and hasattr(self.identifier, "set_classifier")
         self._base_classifier: Optional[ClassifierModel] = None
         self._registered_face_ids: set[str] = set()
+        self._base_classifier_labels: set[str] = set()
         self._auto_enroll_done = False
+        self._enrolled_sources: Dict[str, str] = {}
 
         if self._supports_face_identifier:
             get_classifier = getattr(self.identifier, "get_classifier", lambda: None)
@@ -116,9 +118,15 @@ class AdvertisementPipeline:
     def process_frame(self, frame: np.ndarray) -> Optional[str]:
         """Process a frame from the camera returning a new advert message if any."""
         current_time = time.time()
+        member_sources: Dict[str, str] = {}
+
         if self._supports_face_identifier:
             matches = self.identifier.identify_faces(frame)
-            self._maybe_auto_enroll(matches, frame)
+            auto_sources = self._maybe_auto_enroll(matches, frame)
+            if auto_sources:
+                member_sources.update(auto_sources)
+            for match in matches:
+                member_sources.setdefault(match.label, self._categorize_match(match))
             member_ids = [match.label for match in matches]
         else:
             matches = []
@@ -132,7 +140,8 @@ class AdvertisementPipeline:
             if current_time - last_seen < self.config.cooldown_seconds:
                 continue
             self._id_last_seen[member_id] = current_time
-            message = self._handle_member(member_id, current_time=current_time)
+            source = member_sources.get(member_id)
+            message = self._handle_member(member_id, current_time=current_time, source=source)
         self._maybe_reset_idle(time.time())
         return message
 
@@ -152,9 +161,10 @@ class AdvertisementPipeline:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
-    def _handle_member(self, member_id: str, *, current_time: Optional[float] = None) -> str:
+    def _handle_member(self, member_id: str, *, current_time: Optional[float] = None, source: Optional[str] = None) -> str:
         timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        database.register_member(self.conn, member_id, timestamp)
+        database.register_member(self.conn, member_id, timestamp, source=source, updated_at=timestamp)
+        database.update_member_metadata(self.conn, member_id, source=source, updated_at=timestamp)
         transactions = [
             advertising.Transaction(item=row["item"], amount=row["amount"], timestamp=row["timestamp"])
             for row in database.get_transactions(self.conn, member_id)
@@ -237,8 +247,9 @@ class AdvertisementPipeline:
             raise ValueError("descriptor must be a 1D array")
         created = created_at or datetime.now(timezone.utc).isoformat(timespec="seconds")
 
-        database.register_member(self.conn, member_id, created)
+        database.register_member(self.conn, member_id, created, source="api", updated_at=created)
         database.store_face_feature(self.conn, member_id, vector.tobytes(), created, snapshot)
+        database.update_member_metadata(self.conn, member_id, source="api", updated_at=created)
         self._reload_classifier_from_db()
 
     def remove_face_feature(self, member_id: str) -> bool:
@@ -273,6 +284,7 @@ class AdvertisementPipeline:
         rows = database.get_face_features(self.conn)
         labels: List[str] = []
         descriptors: List[np.ndarray] = []
+        enrolled_sources: Dict[str, str] = {}
         for row in rows:
             member_id = str(row["member_id"])
             descriptor_bytes = row["descriptor"]
@@ -283,9 +295,15 @@ class AdvertisementPipeline:
                 continue
             labels.append(member_id)
             descriptors.append(vector)
+            source_value = row["source"] if "source" in row.keys() else None
+            if source_value:
+                enrolled_sources[member_id] = str(source_value)
+            else:
+                enrolled_sources[member_id] = "auto_enroll"
 
         self._registered_face_ids = set(labels)
         self._auto_enroll_done = bool(self._registered_face_ids)
+        self._enrolled_sources = enrolled_sources
 
         db_classifier: Optional[ClassifierModel] = None
         if descriptors:
@@ -299,6 +317,7 @@ class AdvertisementPipeline:
         active_classifier: Optional[ClassifierModel]
         if self.config.use_trained_classifier and self._base_classifier is not None:
             base_clone = self._clone_classifier(self._base_classifier)
+            self._base_classifier_labels = set(base_clone.labels)
             if db_classifier is not None:
                 active_classifier = ClassifierModel(
                     labels=list(base_clone.labels) + list(db_classifier.labels),
@@ -308,38 +327,55 @@ class AdvertisementPipeline:
             else:
                 active_classifier = base_clone
         else:
+            self._base_classifier_labels = set()
             active_classifier = db_classifier
 
         self.identifier.set_classifier(active_classifier)
 
-    def _maybe_auto_enroll(self, matches: List[FaceMatch], frame: np.ndarray) -> None:
+    def _maybe_auto_enroll(self, matches: List[FaceMatch], frame: np.ndarray) -> Dict[str, str]:
+        sources: Dict[str, str] = {}
         if not self.config.auto_enroll_first_face:
-            return
+            return sources
         if not matches:
-            return
+            return sources
         if self._auto_enroll_done:
-            return
+            return sources
 
         first = matches[0]
         member_id = str(first.label)
         if member_id in self._registered_face_ids:
             self._auto_enroll_done = True
-            return
+            sources[member_id] = self._enrolled_sources.get(member_id, "auto_enroll")
+            return sources
 
         descriptor = first.descriptor
         if descriptor.ndim != 1:
-            return
+            return sources
 
         created_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        database.register_member(self.conn, member_id, created_at)
+        database.register_member(self.conn, member_id, created_at, source="auto_enroll", updated_at=created_at)
 
         snapshot_bytes: Optional[bytes] = None
         if self.config.store_face_snapshot:
             snapshot_bytes = self._encode_snapshot(frame, first)
 
         database.store_face_feature(self.conn, member_id, descriptor.astype(np.float32).tobytes(), created_at, snapshot_bytes)
+        database.update_member_metadata(self.conn, member_id, source="auto_enroll", updated_at=created_at)
         self._reload_classifier_from_db()
         self._auto_enroll_done = True
+        sources[member_id] = "auto_enroll"
+        return sources
+
+    def _categorize_match(self, match: FaceMatch) -> str:
+        label = str(match.label)
+        enrolled_source = self._enrolled_sources.get(label)
+        if enrolled_source is not None:
+            return enrolled_source
+        if match.matched and label in self._base_classifier_labels:
+            return "trained"
+        if match.matched:
+            return "trained"
+        return "unknown"
 
     def _encode_snapshot(self, frame: np.ndarray, match: FaceMatch) -> Optional[bytes]:
         location = match.location

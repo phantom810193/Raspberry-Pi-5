@@ -27,9 +27,24 @@ class DatabaseTests(unittest.TestCase):
     def test_register_member_is_idempotent(self) -> None:
         database.register_member(self.conn, "member-abc", "2024-05-20T00:00:00")
         database.register_member(self.conn, "member-abc", "2024-05-21T00:00:00")
+        row = database.get_member(self.conn, "member-abc")
+        self.assertIsNotNone(row)
+        self.assertEqual(row["source"], "unknown")
+        self.assertEqual(row["updated_at"], "2024-05-20T00:00:00")
+
         cursor = self.conn.execute("SELECT COUNT(*) FROM members")
         (count,) = cursor.fetchone()
         self.assertEqual(count, 1)
+
+        database.update_member_metadata(
+            self.conn,
+            "member-abc",
+            source="trained",
+            updated_at="2024-06-01T00:00:00",
+        )
+        updated = database.get_member(self.conn, "member-abc")
+        self.assertEqual(updated["source"], "trained")
+        self.assertEqual(updated["updated_at"], "2024-06-01T00:00:00")
 
     def test_face_feature_lifecycle(self) -> None:
         descriptor = np.ones(128, dtype=np.float32).tobytes()
