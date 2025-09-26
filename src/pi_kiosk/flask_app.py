@@ -55,6 +55,74 @@ HTML_TEMPLATE = """
 </html>
 """
 
+DEBUG_TEMPLATE = """
+<!doctype html>
+<html lang=\"zh-Hant\">
+  <head>
+    <meta charset=\"utf-8\" />
+    <title>攝影機除錯視圖</title>
+    <style>
+      body { font-family: 'Noto Sans TC', sans-serif; margin: 0; padding: 2rem; background: #f8fafc; color: #0f172a; }
+      .container { max-width: 960px; margin: 0 auto; }
+      h1 { margin-bottom: 1.5rem; font-size: 2rem; }
+      .panel { background: white; border-radius: 1rem; box-shadow: 0 12px 25px rgba(15, 23, 42, 0.1); padding: 1.5rem; }
+      .frame { width: 100%; max-height: 520px; object-fit: contain; border-radius: 0.75rem; background: #1e293b; }
+      pre { background: #0f172a; color: #e2e8f0; padding: 1rem; border-radius: 0.75rem; overflow: auto; }
+      .meta { display: flex; justify-content: space-between; align-items: center; margin-top: 1rem; font-size: 0.95rem; color: #475569; }
+      button { background: #2563eb; color: white; border: none; border-radius: 999px; padding: 0.6rem 1.2rem; cursor: pointer; font-size: 0.95rem; }
+      button:hover { background: #1d4ed8; }
+    </style>
+  </head>
+  <body>
+    <div class=\"container\">
+      <h1>攝影機偵測偵錯模式</h1>
+      <div class=\"panel\">
+        <img id=\"debug-frame\" class=\"frame\" alt=\"debug frame\" />
+        <div class=\"meta\">
+          <span id=\"debug-timestamp\">尚未取得畫面</span>
+          <button onclick=\"refreshFrame()\">立即更新</button>
+        </div>
+        <h2>偵測資料</h2>
+        <pre id=\"debug-metadata\">尚無偵測資料</pre>
+      </div>
+    </div>
+    <script>
+      async function refreshFrame() {
+        try {
+          const response = await fetch('/debug/frame');
+          if (!response.ok) {
+            throw new Error('request failed');
+          }
+          const payload = await response.json();
+          const frameEl = document.getElementById('debug-frame');
+          const timestampEl = document.getElementById('debug-timestamp');
+          const metadataEl = document.getElementById('debug-metadata');
+
+          if (payload.image) {
+            frameEl.src = payload.image;
+            timestampEl.textContent = payload.timestamp ? `更新時間：${payload.timestamp}` : '時間未知';
+          } else {
+            frameEl.removeAttribute('src');
+            timestampEl.textContent = '尚未取得畫面';
+          }
+
+          if (payload.metadata && payload.metadata.length) {
+            metadataEl.textContent = JSON.stringify(payload.metadata, null, 2);
+          } else {
+            metadataEl.textContent = '尚無偵測資料';
+          }
+        } catch (error) {
+          console.error(error);
+        }
+      }
+
+      setInterval(refreshFrame, 1000);
+      refreshFrame();
+    </script>
+  </body>
+</html>
+"""
+
 
 def create_app(pipeline: AdvertisementPipeline) -> Flask:
     app = Flask(__name__)
@@ -62,6 +130,10 @@ def create_app(pipeline: AdvertisementPipeline) -> Flask:
     @app.route("/")
     def index() -> str:
         return render_template_string(HTML_TEMPLATE)
+
+    @app.route("/debug")
+    def debug() -> str:
+        return render_template_string(DEBUG_TEMPLATE)
 
     @app.route("/api/ad")
     def api_ad() -> Response:
@@ -120,6 +192,25 @@ def create_app(pipeline: AdvertisementPipeline) -> Flask:
             return jsonify({"error": "member not found"}), 404
 
         return jsonify({"member_id": member_id, "inserted": inserted}), 200
+
+    @app.route("/debug/frame")
+    def debug_frame() -> Response:
+        frame_bytes, metadata, timestamp = pipeline.debug_snapshot()
+        if frame_bytes is None:
+            payload = {"image": None, "metadata": metadata, "timestamp": timestamp}
+            response = jsonify(payload)
+            response.headers["Cache-Control"] = "no-store"
+            return response
+
+        encoded = base64.b64encode(frame_bytes).decode("ascii")
+        payload = {
+            "image": f"data:image/jpeg;base64,{encoded}",
+            "metadata": metadata,
+            "timestamp": timestamp,
+        }
+        response = jsonify(payload)
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.route("/api/face-features", methods=["POST"])
     def api_add_face_feature() -> Response:

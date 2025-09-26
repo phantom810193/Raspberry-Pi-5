@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from glob import glob
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Protocol, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Protocol, Tuple
 
 try:
     import cv2  # type: ignore
@@ -93,6 +93,9 @@ class AdvertisementPipeline:
         self._base_classifier_labels: set[str] = set()
         self._auto_enroll_done = False
         self._enrolled_sources: Dict[str, str] = {}
+        self._debug_frame: Optional[bytes] = None
+        self._debug_metadata: List[Dict[str, Any]] = []
+        self._debug_timestamp: Optional[datetime] = None
 
         if self._supports_face_identifier:
             get_classifier = getattr(self.identifier, "get_classifier", lambda: None)
@@ -122,6 +125,7 @@ class AdvertisementPipeline:
 
         if self._supports_face_identifier:
             matches = self.identifier.identify_faces(frame)
+            self._update_debug_snapshot(frame, matches)
             if matches:
                 matches.sort(
                     key=lambda m: (m.location.bottom - m.location.top) * (m.location.right - m.location.left),
@@ -395,6 +399,79 @@ class AdvertisementPipeline:
         if match.matched:
             return "trained"
         return "unknown"
+
+    def _update_debug_snapshot(self, frame: np.ndarray, matches: List[FaceMatch]) -> None:
+        try:
+            from PIL import Image, ImageDraw, ImageFont
+        except ImportError:  # pragma: no cover - pillow optional for debug output
+            return
+
+        image = Image.fromarray(frame)
+        draw = ImageDraw.Draw(image)
+        try:
+            font = ImageFont.load_default()
+        except Exception:  # pragma: no cover - defensive
+            font = None
+
+        metadata: List[Dict[str, Any]] = []
+        for match in matches:
+            location = match.location
+            label = str(match.label)
+            color = "#22c55e" if match.matched else "#ef4444"
+
+            box = [
+                int(location.left),
+                int(location.top),
+                int(location.right),
+                int(location.bottom),
+            ]
+            draw.rectangle(box, outline=color, width=3)
+
+            if font is not None:
+                text_position = (box[0], max(0, box[1] - 18))
+                try:
+                    text_box = draw.textbbox(text_position, label, font=font)
+                except AttributeError:  # Pillow <8.0 fallback
+                    text_width, text_height = draw.textsize(label, font=font)
+                    text_box = (
+                        text_position[0],
+                        text_position[1],
+                        text_position[0] + text_width + 4,
+                        text_position[1] + text_height + 4,
+                    )
+                draw.rectangle(text_box, fill=color)
+                draw.text(text_position, label, fill="white", font=font)
+
+            metadata.append(
+                {
+                    "label": label,
+                    "top": int(location.top),
+                    "right": int(location.right),
+                    "bottom": int(location.bottom),
+                    "left": int(location.left),
+                    "matched": bool(match.matched),
+                    "distance": float(match.distance) if match.distance is not None else None,
+                }
+            )
+
+        buffer = io.BytesIO()
+        image.save(buffer, format="JPEG", quality=80)
+
+        with self._lock:
+            self._debug_frame = buffer.getvalue()
+            self._debug_metadata = metadata
+            self._debug_timestamp = datetime.now(timezone.utc)
+
+    def debug_snapshot(self) -> Tuple[Optional[bytes], List[Dict[str, Any]], Optional[str]]:
+        with self._lock:
+            if self._debug_frame is None:
+                return None, [], None
+            timestamp = (
+                self._debug_timestamp.isoformat(timespec="milliseconds")
+                if self._debug_timestamp is not None
+                else None
+            )
+            return self._debug_frame, list(self._debug_metadata), timestamp
 
     def _encode_snapshot(self, frame: np.ndarray, match: FaceMatch) -> Optional[bytes]:
         location = match.location

@@ -288,6 +288,13 @@ class PipelineTests(unittest.TestCase):
         self.assertIsNotNone(database.get_member(pipeline.conn, "member-large"))
         self.assertIsNone(database.get_member(pipeline.conn, "member-small"))
 
+        image_bytes, metadata, timestamp = pipeline.debug_snapshot()
+        self.assertIsNotNone(image_bytes)
+        self.assertGreater(len(image_bytes), 0)
+        labels = {entry["label"] for entry in metadata}
+        self.assertEqual(labels, {"member-large", "member-small"})
+        self.assertIsNotNone(timestamp)
+
     def test_trained_classifier_does_not_register_member(self) -> None:
         descriptor = np.zeros(128, dtype=np.float32)
         match = FaceMatch(
