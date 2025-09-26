@@ -57,9 +57,9 @@ HTML_TEMPLATE = """
 
 DEBUG_TEMPLATE = """
 <!doctype html>
-<html lang=\"zh-Hant\">
+<html lang="zh-Hant">
   <head>
-    <meta charset=\"utf-8\" />
+    <meta charset="utf-8" />
     <title>攝影機除錯視圖</title>
     <style>
       body { font-family: 'Noto Sans TC', sans-serif; margin: 0; padding: 2rem; background: #f8fafc; color: #0f172a; }
@@ -74,16 +74,16 @@ DEBUG_TEMPLATE = """
     </style>
   </head>
   <body>
-    <div class=\"container\">
+    <div class="container">
       <h1>攝影機偵測偵錯模式</h1>
-      <div class=\"panel\">
-        <img id=\"debug-frame\" class=\"frame\" alt=\"debug frame\" />
-        <div class=\"meta\">
-          <span id=\"debug-timestamp\">尚未取得畫面</span>
-          <button onclick=\"refreshFrame()\">立即更新</button>
+      <div class="panel">
+        <img id="debug-frame" class="frame" alt="debug frame" />
+        <div class="meta">
+          <span id="debug-timestamp">尚未取得畫面</span>
+          <button onclick="refreshFrame()">立即更新</button>
         </div>
         <h2>偵測資料</h2>
-        <pre id=\"debug-metadata\">尚無偵測資料</pre>
+        <pre id="debug-metadata">尚無偵測資料</pre>
       </div>
     </div>
     <script>
