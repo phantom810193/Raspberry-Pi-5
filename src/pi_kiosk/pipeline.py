@@ -122,6 +122,19 @@ class AdvertisementPipeline:
 
         if self._supports_face_identifier:
             matches = self.identifier.identify_faces(frame)
+            if matches:
+                matches.sort(
+                    key=lambda m: (m.location.bottom - m.location.top) * (m.location.right - m.location.left),
+                    reverse=True,
+                )
+                largest = matches[0]
+                if len(matches) > 1:
+                    LOGGER.debug(
+                        "Filtered %d faces; processing only the largest face labelled %s",
+                        len(matches) - 1,
+                        largest.label,
+                    )
+                matches = [largest]
             auto_sources = self._maybe_auto_enroll(matches, frame)
             if auto_sources:
                 member_sources.update(auto_sources)

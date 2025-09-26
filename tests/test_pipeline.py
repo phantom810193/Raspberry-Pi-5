@@ -251,6 +251,43 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue(removed)
         self.assertNotIn("member-new", pipeline.list_face_feature_ids())
 
+    def test_only_largest_face_processed(self) -> None:
+        large_descriptor = np.zeros(128, dtype=np.float32)
+        small_descriptor = np.ones(128, dtype=np.float32)
+
+        large_match = FaceMatch(
+            descriptor=large_descriptor,
+            location=FaceLocation(top=0, right=100, bottom=120, left=0),
+            label="member-large",
+            matched=True,
+            distance=0.3,
+        )
+        small_match = FaceMatch(
+            descriptor=small_descriptor,
+            location=FaceLocation(top=10, right=30, bottom=40, left=5),
+            label="member-small",
+            matched=True,
+            distance=0.3,
+        )
+
+        identifier = FaceIdentifierStub([[large_match, small_match]])
+        config = PipelineConfig(
+            db_path=self.db_path,
+            simulated_member_ids=None,
+            cooldown_seconds=0,
+            idle_reset_seconds=None,
+            use_trained_classifier=False,
+        )
+        pipeline = AdvertisementPipeline(config, identifier=identifier, ai_client=self.stub_ai)
+        frame = np.zeros((120, 100, 3), dtype=np.uint8)
+
+        pipeline.process_frame(frame)
+
+        _, latest_member, _ = pipeline.latest_message()
+        self.assertEqual(latest_member, "member-large")
+        self.assertIsNotNone(database.get_member(pipeline.conn, "member-large"))
+        self.assertIsNone(database.get_member(pipeline.conn, "member-small"))
+
     def test_trained_classifier_updates_member_source(self) -> None:
         descriptor = np.zeros(128, dtype=np.float32)
         match = FaceMatch(
