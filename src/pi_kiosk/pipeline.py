@@ -408,16 +408,21 @@ class AdvertisementPipeline:
 
         image = Image.fromarray(frame)
         draw = ImageDraw.Draw(image)
-        try:
-            font = ImageFont.load_default()
-        except Exception:  # pragma: no cover - defensive
-            font = None
+        font = None
+        try:  # use truetype for larger labels when available
+            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 24)
+        except Exception:  # pragma: no cover - fallback to default bitmap font
+            try:
+                font = ImageFont.load_default()
+            except Exception:  # pragma: no cover - defensive
+                font = None
 
         metadata: List[Dict[str, Any]] = []
         for match in matches:
             location = match.location
             label = str(match.label)
             color = "#22c55e" if match.matched else "#ef4444"
+            source = self._categorize_match(match)
 
             box = [
                 int(location.left),
@@ -430,9 +435,11 @@ class AdvertisementPipeline:
             if font is not None:
                 text_position = (box[0], max(0, box[1] - 18))
                 try:
-                    text_box = draw.textbbox(text_position, label, font=font)
+                    text_to_draw = f"{label}"
+                    text_box = draw.textbbox(text_position, text_to_draw, font=font)
                 except AttributeError:  # Pillow <8.0 fallback
-                    text_width, text_height = draw.textsize(label, font=font)
+                    text_to_draw = f"{label}"
+                    text_width, text_height = draw.textsize(text_to_draw, font=font)
                     text_box = (
                         text_position[0],
                         text_position[1],
@@ -440,7 +447,7 @@ class AdvertisementPipeline:
                         text_position[1] + text_height + 4,
                     )
                 draw.rectangle(text_box, fill=color)
-                draw.text(text_position, label, fill="white", font=font)
+                draw.text(text_position, text_to_draw, fill="white", font=font)
 
             metadata.append(
                 {
@@ -451,6 +458,7 @@ class AdvertisementPipeline:
                     "left": int(location.left),
                     "matched": bool(match.matched),
                     "distance": float(match.distance) if match.distance is not None else None,
+                    "source": source,
                 }
             )
 

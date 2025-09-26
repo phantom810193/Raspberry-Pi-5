@@ -107,7 +107,16 @@ DEBUG_TEMPLATE = """
           }
 
           if (payload.metadata && payload.metadata.length) {
-            metadataEl.textContent = JSON.stringify(payload.metadata, null, 2);
+            const lines = payload.metadata.map((entry, index) => {
+              const distance = entry.distance != null ? entry.distance.toFixed(3) : 'N/A';
+              const source = entry.source || 'unknown';
+              return [
+                `#${index + 1} ID：${entry.label}（來源：${source}）`,
+                `距離：${distance}`,
+                `方框：(${entry.left}, ${entry.top}) - (${entry.right}, ${entry.bottom})`
+              ].join('\n');
+            });
+            metadataEl.textContent = lines.join('\n\n');
           } else {
             metadataEl.textContent = '尚無偵測資料';
           }
