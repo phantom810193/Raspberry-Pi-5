@@ -176,8 +176,14 @@ class AdvertisementPipeline:
     # ------------------------------------------------------------------
     def _handle_member(self, member_id: str, *, current_time: Optional[float] = None, source: Optional[str] = None) -> str:
         timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        database.register_member(self.conn, member_id, timestamp, source=source, updated_at=timestamp)
-        database.update_member_metadata(self.conn, member_id, source=source, updated_at=timestamp)
+        should_register = source in {"auto_enroll", "api"}
+        if should_register:
+            database.register_member(self.conn, member_id, timestamp, source=source, updated_at=timestamp)
+
+        update_kwargs: Dict[str, str] = {"updated_at": timestamp}
+        if source is not None:
+            update_kwargs["source"] = source
+        database.update_member_metadata(self.conn, member_id, **update_kwargs)
         transactions = [
             advertising.Transaction(item=row["item"], amount=row["amount"], timestamp=row["timestamp"])
             for row in database.get_transactions(self.conn, member_id)

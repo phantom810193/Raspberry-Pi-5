@@ -288,7 +288,7 @@ class PipelineTests(unittest.TestCase):
         self.assertIsNotNone(database.get_member(pipeline.conn, "member-large"))
         self.assertIsNone(database.get_member(pipeline.conn, "member-small"))
 
-    def test_trained_classifier_updates_member_source(self) -> None:
+    def test_trained_classifier_does_not_register_member(self) -> None:
         descriptor = np.zeros(128, dtype=np.float32)
         match = FaceMatch(
             descriptor=descriptor,
@@ -318,9 +318,44 @@ class PipelineTests(unittest.TestCase):
 
         pipeline.process_frame(frame)
 
+        self.assertIsNone(database.get_member(pipeline.conn, "member-trained"))
+
+    def test_trained_classifier_updates_existing_member(self) -> None:
+        descriptor = np.zeros(128, dtype=np.float32)
+        match = FaceMatch(
+            descriptor=descriptor,
+            location=FaceLocation(top=0, right=4, bottom=4, left=0),
+            label="member-trained",
+            matched=True,
+            distance=0.3,
+        )
+
+        identifier = FaceIdentifierStub([[match]])
+        config = PipelineConfig(
+            db_path=self.db_path,
+            simulated_member_ids=None,
+            cooldown_seconds=0,
+            idle_reset_seconds=None,
+            use_trained_classifier=True,
+        )
+        pipeline = AdvertisementPipeline(config, identifier=identifier, ai_client=self.stub_ai)
+
+        initial_timestamp = "2024-01-01T00:00:00"
+        database.register_member(
+            pipeline.conn,
+            "member-trained",
+            initial_timestamp,
+            source="trained",
+            updated_at=initial_timestamp,
+        )
+
+        frame = np.zeros((4, 4, 3), dtype=np.uint8)
+        pipeline.process_frame(frame)
+
         member_row = database.get_member(pipeline.conn, "member-trained")
         self.assertIsNotNone(member_row)
         self.assertEqual(member_row["source"], "trained")
+        self.assertNotEqual(member_row["updated_at"], initial_timestamp)
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
