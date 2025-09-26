@@ -110,11 +110,7 @@ DEBUG_TEMPLATE = """
             const lines = payload.metadata.map((entry, index) => {
               const distance = entry.distance != null ? entry.distance.toFixed(3) : 'N/A';
               const source = entry.source || 'unknown';
-              return [
-                `#${index + 1} ID：${entry.label}（來源：${source}）`,
-                `距離：${distance}`,
-                `方框：(${entry.left}, ${entry.top}) - (${entry.right}, ${entry.bottom})`
-              ].join('\n');
+              return `#${index + 1} ID：${entry.label}（來源：${source}）\n距離：${distance}\n方框：(${entry.left}, ${entry.top}) - (${entry.right}, ${entry.bottom})`;
             });
             metadataEl.textContent = lines.join('\n\n');
           } else {
