@@ -8,37 +8,41 @@
   </head>
   <body class="ad-page">
     {% set display = initial_state.display %}
-    <div class="frame-container">
-      <h2>Camera Debug</h2>
-      <img
-        id="debug-frame"
-        class="frame"
-        alt="偵測畫面"
-        {% if not display %}hidden{% endif %}
-      />
-      <div class="timestamp" id="frame-timestamp">尚未取得畫面</div>
-      <div class="status" id="status-indicator" aria-live="polite"></div>
-    </div>
-
-    <article id="ad-article" class="{{ display.template_id if display else 'ME0000' }}">
-      <section id="ad-body">
-        {% if display %}
-          {% for paragraph in display.paragraphs %}
-            <p>{{ paragraph }}</p>
-          {% endfor %}
-        {% else %}
-          <p>等待辨識中，請將視線對準鏡頭以進行辨識。</p>
-        {% endif %}
-        <a
-          id="ad-cta"
-          class="register-link"
-          href="{{ display.cta_href if display and display.cta_href else '#' }}"
-          {% if not display or not display.cta_text %}hidden{% endif %}
-        >
-          {{ display.cta_text if display and display.cta_text else '' }}
-        </a>
+    <div class="layout">
+      <section class="camera-pane">
+        <h2>Camera Photo</h2>
+        <img
+          id="debug-frame"
+          class="frame"
+          alt="偵測畫面"
+          {% if not display %}hidden{% endif %}
+        />
+        <div class="timestamp" id="frame-timestamp">尚未取得畫面</div>
+        <div class="status" id="status-indicator" aria-live="polite"></div>
       </section>
-    </article>
+
+      <section class="ad-pane">
+        <article id="ad-article" class="{{ display.template_id if display else 'ME0000' }}">
+          <section id="ad-body">
+            {% if display %}
+              {% for paragraph in display.paragraphs %}
+                <p>{{ paragraph }}</p>
+              {% endfor %}
+            {% else %}
+              <p>等待辨識中，請將視線對準鏡頭以進行辨識。</p>
+            {% endif %}
+            <a
+              id="ad-cta"
+              class="register-link"
+              href="{{ display.cta_href if display and display.cta_href else '#' }}"
+              {% if not display or not display.cta_text %}hidden{% endif %}
+            >
+              {{ display.cta_text if display and display.cta_text else '' }}
+            </a>
+          </section>
+        </article>
+      </section>
+    </div>
 
     <script>
       function pollDebugFrame(options = {}) {

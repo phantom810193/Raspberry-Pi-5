@@ -10,19 +10,72 @@ body.ad-page {
     color: #fff;
     font-family: 'Noto Sans TC', 'PingFang TC', sans-serif;
     overflow: hidden;
+    min-height: 100vh;
+}
+
+.layout {
+    display: flex;
+    min-height: 100vh;
+}
+
+.camera-pane {
+    width: min(420px, 35vw);
+    background: rgba(15, 23, 42, 0.9);
+    box-shadow: 0 18px 45px rgba(15, 23, 42, 0.35);
+    padding: 1.5rem;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    z-index: 2;
+}
+
+.camera-pane h2 {
+    margin: 0;
+    font-size: 1.05rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #a5b4fc;
+}
+
+.camera-pane .frame {
+    width: 100%;
+    border-radius: 0.75rem;
+    background: #0f172a;
+    object-fit: cover;
+}
+
+.camera-pane .frame[hidden] {
+    display: none;
+}
+
+.camera-pane .timestamp {
+    font-size: 0.9rem;
+    color: #e2e8f0;
+}
+
+.camera-pane .status {
+    font-size: 0.9rem;
+    color: #facc15;
+    min-height: 1.2rem;
+}
+
+.ad-pane {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
 }
 
 article {
-    width: 100vw;
-    height: 100vh;
+    width: 100%;
+    height: 100%;
     margin: 0;
     padding: 0;
     background-size: cover;
     background-position: center;
     background-repeat: no-repeat;
     position: absolute;
-    top: 0;
-    left: 0;
+    inset: 0;
 }
 
         article.AD0000,
@@ -61,7 +114,7 @@ article {
             margin: 0;
             padding: 0;
             font-weight: normal;
-            width: 40vw;
+            max-width: 480px;
             padding-left: 6vw;
             padding-top: 45vh;
         }
@@ -101,78 +154,57 @@ article {
         article.ME0000 p{
             opacity: 0;
         }
-        article.ME0001 p {
-            font-size: 3em;
-            color: white;
+        article.ME0001 p,
+        article.ME0002 p,
+        article.ME0003 p {
+            font-size: clamp(2rem, 3vw, 3em);
             margin: 0;
             padding: 0;
             font-weight: bold;
-            width: 50vw;
-            padding-left: 24vw;
+            max-width: 70%;
             padding-top: 8vh;
         }
-        article.ME0002 p {
-            font-size: 3em;
+        article.ME0001 p {
             color: white;
-            margin: 0;
-            padding: 0;
-            font-weight: bold;
-            width: 64vw;
-            padding-left: 18vw;
-            padding-top: 8vh;
+            margin-left: auto;
+            margin-right: 6vw;
+            text-align: right;
+        }
+        article.ME0002 p {
+            color: white;
+            margin: 0 auto;
             text-align: center;
         }
         article.ME0003 p {
-            font-size: 3em;
             color: #ff3131;
-            margin: 0;
-            padding: 0;
-            font-weight: bold;
-            width: 50vw;
-            padding-left: 40vw;
-            padding-top: 8vh;
+            margin-left: auto;
+            margin-right: 6vw;
+            text-align: right;
         }
 
-.frame-container {
-    position: fixed;
-    top: 1.5rem;
-    left: 1.5rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    padding: 1rem;
-    border-radius: 1rem;
-    background: rgba(15, 23, 42, 0.75);
-    box-shadow: 0 18px 45px rgba(15, 23, 42, 0.35);
-    z-index: 10;
-    width: min(24rem, 90vw);
-}
+@media (max-width: 960px) {
+    body.ad-page {
+        overflow: auto;
+    }
 
-.frame-container h2 {
-    margin: 0;
-    font-size: 1rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: #a5b4fc;
-}
+    .layout {
+        flex-direction: column;
+    }
 
-.frame-container .frame {
-    width: 100%;
-    border-radius: 0.75rem;
-    background: #0f172a;
-}
+    .camera-pane {
+        width: 100%;
+        box-shadow: none;
+    }
 
-.frame-container .frame[hidden] {
-    display: none;
-}
+    .ad-pane {
+        min-height: 60vh;
+    }
 
-.frame-container .timestamp {
-    font-size: 0.85rem;
-    color: #e2e8f0;
-}
-
-.frame-container .status {
-    font-size: 0.9rem;
-    color: #facc15;
-    min-height: 1.2rem;
+    article.ME0001 p,
+    article.ME0002 p,
+    article.ME0003 p {
+        max-width: 90%;
+        margin: 0 auto;
+        text-align: center;
+    }
 }
