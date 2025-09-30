@@ -109,6 +109,7 @@ class AdvertisementPipeline:
         self._latest_message = "等待辨識中..."
         self._latest_id: Optional[str] = None
         self._latest_timestamp: Optional[datetime] = None
+        self._latest_display = advertising.build_idle_display()
         self._id_last_seen: Dict[str, float] = {}
         self._lock = threading.RLock()
         self._last_detection_time: Optional[float] = None
@@ -171,6 +172,10 @@ class AdvertisementPipeline:
         with self._lock:
             return self._latest_message, self._latest_id, self._latest_timestamp
 
+    def latest_display(self) -> Dict[str, Any]:
+        with self._lock:
+            return _serialise_display(self._latest_display)
+
     def ai_busy(self) -> bool:
         with self._lock:
             return self._ai_busy
@@ -224,11 +229,18 @@ class AdvertisementPipeline:
 
         final_message = ai_message or message
 
+        display_payload = advertising.build_display_payload(
+            member_id,
+            transactions,
+            message=final_message,
+        )
+
         with self._lock:
             self._latest_message = final_message
             self._latest_id = member_id
             self._latest_timestamp = datetime.now(timezone.utc)
             self._last_detection_time = current_time if current_time is not None else time.time()
+            self._latest_display = display_payload
         return final_message
 
     def add_transactions(self, member_id: str, records: Iterable[Tuple[str, float, str]]) -> int:
@@ -251,6 +263,7 @@ class AdvertisementPipeline:
             self._latest_id = None
             self._latest_timestamp = None
             self._last_detection_time = None
+            self._latest_display = advertising.build_idle_display()
 
     def add_face_feature(
         self,
@@ -503,6 +516,15 @@ class AdvertisementPipeline:
         with io.BytesIO() as buffer:
             Image.fromarray(face_region).save(buffer, format="JPEG")
             return buffer.getvalue()
+
+
+def _serialise_display(display: advertising.AdDisplay) -> Dict[str, Any]:
+    return {
+        "template_id": display.template_id,
+        "paragraphs": list(display.paragraphs),
+        "cta_text": display.cta_text,
+        "cta_href": display.cta_href,
+    }
 
 
 def create_pipeline(config: PipelineConfig, ai_client: Optional[AIClient] = None) -> AdvertisementPipeline:

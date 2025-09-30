@@ -84,6 +84,8 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(latest_message, message)
         self.assertEqual(latest_member, "member-001")
         self.assertIsNotNone(timestamp)
+        display = pipeline.latest_display()
+        self.assertIn(display["template_id"], {"ME0001", "ME0002", "ME0003"})
 
     def test_process_frame_respects_cooldown(self) -> None:
         config = PipelineConfig(db_path=self.db_path, simulated_member_ids=("member-001",), cooldown_seconds=60)
@@ -295,6 +297,32 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(labels, {"member-large", "member-small"})
         self.assertIsNotNone(timestamp)
         self.assertFalse(ai_busy)
+
+    def test_latest_display_defaults_to_idle(self) -> None:
+        config = PipelineConfig(db_path=self.db_path, simulated_member_ids=("member-001",))
+        pipeline = create_pipeline(config, ai_client=self.stub_ai)
+        display = pipeline.latest_display()
+        self.assertEqual(display["template_id"], "ME0000")
+
+    def test_display_uses_unregistered_template_without_history(self) -> None:
+        config = PipelineConfig(db_path=self.db_path, simulated_member_ids=("member-new",))
+        pipeline = create_pipeline(config, ai_client=self.stub_ai)
+        pipeline.simulate_member("member-new")
+        display = pipeline.latest_display()
+        self.assertEqual(display["template_id"], "AD0000")
+
+    def test_display_chooses_dessert_template(self) -> None:
+        config = PipelineConfig(db_path=self.db_path, simulated_member_ids=("member-dessert",))
+        pipeline = create_pipeline(config, ai_client=self.stub_ai)
+        pipeline.simulate_member("member-dessert")
+        database.upsert_transactions(
+            pipeline.conn,
+            "member-dessert",
+            [("草莓塔", 150.0, "2025-09-29T07:33:00")],
+        )
+        pipeline.simulate_member("member-dessert")
+        display = pipeline.latest_display()
+        self.assertEqual(display["template_id"], "ME0001")
 
     def test_trained_classifier_does_not_register_member(self) -> None:
         descriptor = np.zeros(128, dtype=np.float32)

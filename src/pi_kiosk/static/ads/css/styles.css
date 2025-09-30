@@ -1,0 +1,178 @@
+html,
+body {
+    margin: 0;
+    padding: 0;
+    position: relative;
+}
+
+body.ad-page {
+    background: #000;
+    color: #fff;
+    font-family: 'Noto Sans TC', 'PingFang TC', sans-serif;
+    overflow: hidden;
+}
+
+article {
+    width: 100vw;
+    height: 100vh;
+    margin: 0;
+    padding: 0;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    position: absolute;
+    top: 0;
+    left: 0;
+}
+
+        article.AD0000,
+        article.AD0001,
+        article.AD0002,
+        article.AD0003,
+        article.AD0004,
+        article.AD0005 {
+            background-image: url('../images/AD0000.jpg');
+            background-size: contain;
+            background-color: black;
+        } 
+        article.AD0001{
+            background-image: url('../images/AD0001.jpg');
+        }
+        article.AD0002{
+            background-image: url('../images/AD0002.jpg');
+        }
+        article.AD0003{
+            background-image: url('../images/AD0003.jpg');
+        }
+        article.AD0004{
+            background-image: url('../images/AD0004.jpg');
+        }
+        article.AD0005{
+            background-image: url('../images/AD0005.jpg');
+        }
+        article.AD0000 section,
+        article.AD0001 section,
+        article.AD0002 section,
+        article.AD0003 section,
+        article.AD0004 section,
+        article.AD0005 section {
+            font-size: 1.6em;
+            color: black;
+            margin: 0;
+            padding: 0;
+            font-weight: normal;
+            width: 40vw;
+            padding-left: 6vw;
+            padding-top: 45vh;
+        }
+        article.AD0000 section a{
+            color: black;
+        }
+        article.AD0000 section a.register-link,
+        article.AD0001 section a.register-link,
+        article.AD0002 section a.register-link,
+        article.AD0003 section a.register-link,
+        article.AD0004 section a.register-link,
+        article.AD0005 section a.register-link {
+            text-decoration: none;
+            display: inline-block;
+            border: black solid 2px;
+            padding: 16px 24px;
+            border-radius: 50px;
+            font-size: 0.8em;
+            letter-spacing: 0.1em;
+        }
+
+        article.ME0000{
+            background-image: url('../images/ME0000.jpg');
+            background-size: contain;
+            background-color: black;
+        }   
+    
+        article.ME0001 {
+            background-image: url('../images/ME0001.jpg');
+        }  
+        article.ME0002 {
+            background-image: url('../images/ME0002.jpg');
+        }  
+        article.ME0003 {
+            background-image: url('../images/ME0003.jpg');
+        }    
+        article.ME0000 p{
+            opacity: 0;
+        }
+        article.ME0001 p {
+            font-size: 3em;
+            color: white;
+            margin: 0;
+            padding: 0;
+            font-weight: bold;
+            width: 50vw;
+            padding-left: 24vw;
+            padding-top: 8vh;
+        }
+        article.ME0002 p {
+            font-size: 3em;
+            color: white;
+            margin: 0;
+            padding: 0;
+            font-weight: bold;
+            width: 64vw;
+            padding-left: 18vw;
+            padding-top: 8vh;
+            text-align: center;
+        }
+        article.ME0003 p {
+            font-size: 3em;
+            color: #ff3131;
+            margin: 0;
+            padding: 0;
+            font-weight: bold;
+            width: 50vw;
+            padding-left: 40vw;
+            padding-top: 8vh;
+        }
+
+.frame-container {
+    position: fixed;
+    top: 1.5rem;
+    left: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 1rem;
+    border-radius: 1rem;
+    background: rgba(15, 23, 42, 0.75);
+    box-shadow: 0 18px 45px rgba(15, 23, 42, 0.35);
+    z-index: 10;
+    width: min(24rem, 90vw);
+}
+
+.frame-container h2 {
+    margin: 0;
+    font-size: 1rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #a5b4fc;
+}
+
+.frame-container .frame {
+    width: 100%;
+    border-radius: 0.75rem;
+    background: #0f172a;
+}
+
+.frame-container .frame[hidden] {
+    display: none;
+}
+
+.frame-container .timestamp {
+    font-size: 0.85rem;
+    color: #e2e8f0;
+}
+
+.frame-container .status {
+    font-size: 0.9rem;
+    color: #facc15;
+    min-height: 1.2rem;
+}

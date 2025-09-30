@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <title>智慧廣告看板</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='ads/css/styles.css') }}" />
+  </head>
+  <body class="ad-page">
+    {% set display = initial_state.display %}
+    <div class="frame-container">
+      <h2>Camera Debug</h2>
+      <img
+        id="debug-frame"
+        class="frame"
+        alt="偵測畫面"
+        {% if not display %}hidden{% endif %}
+      />
+      <div class="timestamp" id="frame-timestamp">尚未取得畫面</div>
+      <div class="status" id="status-indicator" aria-live="polite"></div>
+    </div>
+
+    <article id="ad-article" class="{{ display.template_id if display else 'ME0000' }}">
+      <section id="ad-body">
+        {% if display %}
+          {% for paragraph in display.paragraphs %}
+            <p>{{ paragraph }}</p>
+          {% endfor %}
+        {% else %}
+          <p>等待辨識中，請將視線對準鏡頭以進行辨識。</p>
+        {% endif %}
+        <a
+          id="ad-cta"
+          class="register-link"
+          href="{{ display.cta_href if display and display.cta_href else '#' }}"
+          {% if not display or not display.cta_text %}hidden{% endif %}
+        >
+          {{ display.cta_text if display and display.cta_text else '' }}
+        </a>
+      </section>
+    </article>
+
+    <script>
+      function pollDebugFrame(options = {}) {
+        const { onFrame, onBusy, onError, interval = 1000 } = options;
+        let lastPayload = null;
+        let stopped = false;
+
+        async function fetchFrame() {
+          if (stopped) {
+            return;
+          }
+          try {
+            const response = await fetch('/debug/frame', { cache: 'no-store' });
+            if (!response.ok) {
+              throw new Error('failed to fetch debug frame');
+            }
+            const payload = await response.json();
+            if (payload.ai_busy) {
+              if (typeof onBusy === 'function') {
+                onBusy(payload, lastPayload);
+              }
+              return;
+            }
+            lastPayload = payload;
+            if (typeof onFrame === 'function') {
+              onFrame(payload);
+            }
+          } catch (error) {
+            console.error('failed to fetch debug frame', error);
+            if (typeof onError === 'function') {
+              onError(error);
+            }
+          }
+        }
+
+        fetchFrame();
+        const timer = setInterval(fetchFrame, interval);
+        return {
+          refresh: fetchFrame,
+          stop() {
+            stopped = true;
+            clearInterval(timer);
+          },
+          getLastPayload() {
+            return lastPayload;
+          },
+        };
+      }
+
+      const frameEl = document.getElementById('debug-frame');
+      const frameTimestampEl = document.getElementById('frame-timestamp');
+      const statusEl = document.getElementById('status-indicator');
+      const adArticleEl = document.getElementById('ad-article');
+      const adSectionEl = document.getElementById('ad-body');
+      const ctaLinkEl = document.getElementById('ad-cta');
+
+      function setBusy(isBusy) {
+        statusEl.textContent = isBusy ? 'AI 產生中…請稍候' : '';
+      }
+
+      function renderParagraphs(paragraphs) {
+        const existingParagraphs = adSectionEl.querySelectorAll('p');
+        existingParagraphs.forEach((node) => node.remove());
+
+        const anchor = ctaLinkEl;
+        paragraphs.forEach((text) => {
+          const p = document.createElement('p');
+          p.textContent = text;
+          adSectionEl.insertBefore(p, anchor);
+        });
+      }
+
+      function applyAdState(state) {
+        const payload = state || {};
+        const display = payload.display || {};
+        const templateId = display.template_id || 'ME0000';
+        adArticleEl.className = templateId;
+
+        const paragraphs = Array.isArray(display.paragraphs)
+          ? [...display.paragraphs]
+          : [];
+        if (paragraphs.length === 0) {
+          paragraphs.push('等待辨識中，請將視線對準鏡頭以進行辨識。');
+        }
+        renderParagraphs(paragraphs);
+
+        if (display.cta_text) {
+          ctaLinkEl.textContent = display.cta_text;
+          ctaLinkEl.href = display.cta_href || '#';
+          ctaLinkEl.hidden = false;
+        } else {
+          ctaLinkEl.textContent = '';
+          ctaLinkEl.href = '#';
+          ctaLinkEl.hidden = true;
+        }
+      }
+
+      pollDebugFrame({
+        onFrame(payload) {
+          setBusy(false);
+          if (payload.image) {
+            frameEl.src = payload.image;
+            frameEl.hidden = false;
+          } else {
+            frameEl.removeAttribute('src');
+            frameEl.hidden = true;
+          }
+          frameTimestampEl.textContent = payload.timestamp ? `影像更新：${payload.timestamp}` : '尚未取得畫面';
+        },
+        onBusy(_payload, lastPayload) {
+          setBusy(true);
+          if (!lastPayload || !lastPayload.timestamp) {
+            frameTimestampEl.textContent = '等待影像更新…';
+          }
+        },
+        onError() {
+          setBusy(true);
+          frameTimestampEl.textContent = '取得影像失敗';
+        },
+      });
+
+      const initialState = {{ initial_state | tojson }};
+      applyAdState(initialState);
+
+      async function refreshAd() {
+        try {
+          const response = await fetch('/api/ad', { cache: 'no-store' });
+          if (!response.ok) {
+            return;
+          }
+          const payload = await response.json();
+          applyAdState(payload);
+        } catch (error) {
+          console.error('failed to refresh ad payload', error);
+        }
+      }
+
+      setInterval(refreshAd, 1000);
+      refreshAd();
+    </script>
+  </body>
+</html>
