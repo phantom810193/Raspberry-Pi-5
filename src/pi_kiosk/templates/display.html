@@ -19,6 +19,7 @@
         />
         <div class="timestamp" id="frame-timestamp">尚未取得畫面</div>
         <div class="status" id="status-indicator" aria-live="polite"></div>
+        <div class="countdown" id="display-countdown" hidden></div>
       </section>
 
       <section class="ad-pane">
@@ -98,6 +99,10 @@
       const adArticleEl = document.getElementById('ad-article');
       const adSectionEl = document.getElementById('ad-body');
       const ctaLinkEl = document.getElementById('ad-cta');
+      const countdownEl = document.getElementById('display-countdown');
+
+      let freezeUntil = 0;
+      let countdownTimer = null;
 
       function setBusy(isBusy) {
         statusEl.textContent = isBusy ? 'AI 產生中…請稍候' : '';
@@ -113,6 +118,44 @@
           p.textContent = text;
           adSectionEl.insertBefore(p, anchor);
         });
+      }
+
+      function stopCountdown() {
+        freezeUntil = 0;
+        if (countdownTimer) {
+          clearInterval(countdownTimer);
+          countdownTimer = null;
+        }
+        countdownEl.hidden = true;
+        countdownEl.textContent = '';
+      }
+
+      function updateCountdown() {
+        if (!freezeUntil) {
+          stopCountdown();
+          return;
+        }
+        const remainingMs = freezeUntil - Date.now();
+        if (remainingMs <= 0) {
+          stopCountdown();
+          return;
+        }
+        const seconds = Math.ceil(remainingMs / 1000);
+        countdownEl.textContent = `廣告將在 ${seconds} 秒後更新`;
+        countdownEl.hidden = false;
+      }
+
+      function startCountdown(untilMillis) {
+        if (!untilMillis || Number.isNaN(untilMillis)) {
+          stopCountdown();
+          return;
+        }
+        freezeUntil = untilMillis;
+        updateCountdown();
+        if (countdownTimer) {
+          clearInterval(countdownTimer);
+        }
+        countdownTimer = setInterval(updateCountdown, 1000);
       }
 
       function applyAdState(state) {
@@ -137,6 +180,18 @@
           ctaLinkEl.textContent = '';
           ctaLinkEl.href = '#';
           ctaLinkEl.hidden = true;
+        }
+
+        const freezeIso = display.freeze_until;
+        if (freezeIso) {
+          const parsed = Date.parse(freezeIso);
+          if (!Number.isNaN(parsed)) {
+            startCountdown(parsed);
+          } else {
+            stopCountdown();
+          }
+        } else {
+          stopCountdown();
         }
       }
 
@@ -168,6 +223,9 @@
       applyAdState(initialState);
 
       async function refreshAd() {
+        if (freezeUntil && Date.now() < freezeUntil) {
+          return;
+        }
         try {
           const response = await fetch('/api/ad', { cache: 'no-store' });
           if (!response.ok) {

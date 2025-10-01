@@ -54,6 +54,7 @@ class PipelineConfig:
     auto_enroll_first_face: bool = False
     auto_enroll_threshold: float = 0.45
     store_face_snapshot: bool = False
+    display_freeze_seconds: float = 10.0
 
 
 class AdvertisementPipeline:
@@ -110,6 +111,7 @@ class AdvertisementPipeline:
         self._latest_id: Optional[str] = None
         self._latest_timestamp: Optional[datetime] = None
         self._latest_display = advertising.build_idle_display()
+        self._display_freeze_until: Optional[float] = None
         self._id_last_seen: Dict[str, float] = {}
         self._lock = threading.RLock()
         self._last_detection_time: Optional[float] = None
@@ -174,7 +176,7 @@ class AdvertisementPipeline:
 
     def latest_display(self) -> Dict[str, Any]:
         with self._lock:
-            return _serialise_display(self._latest_display)
+            return _serialise_display(self._latest_display, self._display_freeze_until)
 
     def ai_busy(self) -> bool:
         with self._lock:
@@ -241,6 +243,11 @@ class AdvertisementPipeline:
             self._latest_timestamp = datetime.now(timezone.utc)
             self._last_detection_time = current_time if current_time is not None else time.time()
             self._latest_display = display_payload
+            freeze_seconds = float(self.config.display_freeze_seconds)
+            if freeze_seconds > 0:
+                self._display_freeze_until = time.time() + freeze_seconds
+            else:
+                self._display_freeze_until = None
         return final_message
 
     def add_transactions(self, member_id: str, records: Iterable[Tuple[str, float, str]]) -> int:
@@ -264,6 +271,7 @@ class AdvertisementPipeline:
             self._latest_timestamp = None
             self._last_detection_time = None
             self._latest_display = advertising.build_idle_display()
+            self._display_freeze_until = None
 
     def add_face_feature(
         self,
@@ -518,12 +526,21 @@ class AdvertisementPipeline:
             return buffer.getvalue()
 
 
-def _serialise_display(display: advertising.AdDisplay) -> Dict[str, Any]:
+def _serialise_display(display: advertising.AdDisplay, freeze_until: Optional[float]) -> Dict[str, Any]:
+    freeze_iso: Optional[str]
+    if freeze_until is None:
+        freeze_iso = None
+    else:
+        try:
+            freeze_iso = datetime.fromtimestamp(freeze_until, tz=timezone.utc).isoformat(timespec="seconds")
+        except (OverflowError, OSError, ValueError):
+            freeze_iso = None
     return {
         "template_id": display.template_id,
         "paragraphs": list(display.paragraphs),
         "cta_text": display.cta_text,
         "cta_href": display.cta_href,
+        "freeze_until": freeze_iso,
     }
 
 

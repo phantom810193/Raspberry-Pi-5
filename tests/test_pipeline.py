@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import tempfile
+import time
 import unittest
 from collections import deque
+from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
@@ -86,6 +88,7 @@ class PipelineTests(unittest.TestCase):
         self.assertIsNotNone(timestamp)
         display = pipeline.latest_display()
         self.assertIn(display["template_id"], {"ME0001", "ME0002", "ME0003"})
+        self.assertIsNotNone(display["freeze_until"])
 
     def test_process_frame_respects_cooldown(self) -> None:
         config = PipelineConfig(db_path=self.db_path, simulated_member_ids=("member-001",), cooldown_seconds=60)
@@ -303,6 +306,7 @@ class PipelineTests(unittest.TestCase):
         pipeline = create_pipeline(config, ai_client=self.stub_ai)
         display = pipeline.latest_display()
         self.assertEqual(display["template_id"], "ME0000")
+        self.assertIsNone(display["freeze_until"])
 
     def test_display_uses_unregistered_template_without_history(self) -> None:
         config = PipelineConfig(db_path=self.db_path, simulated_member_ids=("member-new",))
@@ -310,6 +314,7 @@ class PipelineTests(unittest.TestCase):
         pipeline.simulate_member("member-new")
         display = pipeline.latest_display()
         self.assertEqual(display["template_id"], "AD0000")
+        self.assertIsNotNone(display["freeze_until"])
 
     def test_display_chooses_dessert_template(self) -> None:
         config = PipelineConfig(db_path=self.db_path, simulated_member_ids=("member-dessert",))
@@ -323,6 +328,18 @@ class PipelineTests(unittest.TestCase):
         pipeline.simulate_member("member-dessert")
         display = pipeline.latest_display()
         self.assertEqual(display["template_id"], "ME0001")
+        self.assertIsNotNone(display["freeze_until"])
+
+    def test_freeze_duration_applied(self) -> None:
+        config = PipelineConfig(db_path=self.db_path, simulated_member_ids=("member-freeze",))
+        pipeline = create_pipeline(config, ai_client=self.stub_ai)
+        start = time.time()
+        pipeline.simulate_member("member-freeze")
+        display = pipeline.latest_display()
+        freeze_until = display["freeze_until"]
+        self.assertIsNotNone(freeze_until)
+        parsed = datetime.fromisoformat(freeze_until.replace("Z", "+00:00"))
+        self.assertGreater(parsed.timestamp(), start)
 
     def test_trained_classifier_does_not_register_member(self) -> None:
         descriptor = np.zeros(128, dtype=np.float32)

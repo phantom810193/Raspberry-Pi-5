@@ -379,6 +379,12 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="Persist a JPEG snapshot of the enrolled face in the database",
     )
+    parser.add_argument(
+        "--display-freeze-seconds",
+        type=float,
+        default=10.0,
+        help="Seconds to freeze the display after a new advert is shown (0 disables)",
+    )
     return parser.parse_args(argv)
 
 
@@ -395,6 +401,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         auto_enroll_first_face=args.auto_enroll_first_face,
         auto_enroll_threshold=args.auto_enroll_threshold,
         store_face_snapshot=args.store_face_snapshot,
+        display_freeze_seconds=args.display_freeze_seconds,
     )
     pipeline = create_pipeline(config)
     app = create_app(pipeline)
