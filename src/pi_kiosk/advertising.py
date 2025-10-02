@@ -92,9 +92,10 @@ def build_display_payload(
 def _select_member_template(transactions: list[Transaction]) -> str:
     """Choose a template for members with purchase history."""
 
-    dessert_keywords = ("蛋糕", "塔", "布丁", "慕斯", "鬆餅", "捲", "派", "甜", "奶酪", "可麗餅")
+    dessert_keywords = ("蛋糕", "塔", "布丁", "慕斯", "鬆餅",
+                        "捲", "派", "甜", "奶酪", "可麗餅")
     kids_keywords = ("幼兒", "親子", "園", "兒童", "才藝")
-    fitness_keywords = ("健身", "運動", "蛋白", "補給", "瑜珈", "體驗")
+    fitness_keywords = ("健身", "運動", "蛋白", "補給", "瑜珈", "體驗", "牛奶", "豆漿", "麥片")
 
     def _count(keywords: tuple[str, ...]) -> int:
         return sum(1 for tx in transactions if any(keyword in tx.item for keyword in keywords))
