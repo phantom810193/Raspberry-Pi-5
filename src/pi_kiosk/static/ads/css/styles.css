@@ -78,7 +78,7 @@ article {
     height: 100%;
     margin: 0;
     padding: 0;
-    background-size: cover;
+    background-size: contain;
     background-position: center;
     background-repeat: no-repeat;
     position: absolute;
