@@ -73,8 +73,27 @@ class AIClient:
 
     def __init__(self, config: Optional[AIConfig] = None):
         self.config = config or AIConfig.from_env()
-        self._client = OpenAI(base_url=self.config.base_url,
-                              api_key=self.config.api_key)
+        provider = (self.config.provider or "").strip().lower()
+        self._use_remote = provider in {"remote", "remote_ollama", "ollama"}
+        self._client: Optional[OpenAI] = None
+        self._remote_client = None
+        self._HumanMessage = None
+        self._SystemMessage = None
+
+        if self._use_remote:
+            try:
+                from langchain_community.chat_models import ChatOllama  # type: ignore
+                from langchain_core.messages import HumanMessage, SystemMessage  # type: ignore
+            except ImportError as exc:  # pragma: no cover - optional dependency
+                raise RuntimeError(
+                    "Remote LLM provider requires 'langchain-community' and 'langchain-core' packages"
+                ) from exc
+            self._remote_client = ChatOllama(model=self.config.model, base_url=self.config.base_url)
+            self._HumanMessage = HumanMessage
+            self._SystemMessage = SystemMessage
+        else:
+            self._client = OpenAI(base_url=self.config.base_url,
+                                  api_key=self.config.api_key)
         self._cache: Dict[tuple[str, str], CacheEntry] = {}
 
     def _select_prompts(self, context: Dict[str, str]) -> tuple[str, str]:
@@ -106,27 +125,41 @@ class AIClient:
             return cached
 
         system_prompt, user_prompt = self._select_prompts(context)
-        try:
-            response = self._client.chat.completions.create(
-                model=self.config.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                timeout=self.config.timeout,
-                stop=["<end_of_turn>", "文案重點說明", "---", "<|eot_id|>"],
-            )
-        except OpenAIError as exc:
-            LOGGER.warning(
-                "AI generation failed for member %s: %s", member_id, exc)
-            return None
 
-        choice = response.choices[0] if response.choices else None
-        message = None
-        if choice is not None:
-            chat_message = getattr(choice, "message", None)
-            if chat_message is not None:
-                message = getattr(chat_message, "content", None)
+        message: Optional[str] = None
+
+        if self._use_remote and self._remote_client is not None:
+            try:
+                response = self._remote_client.invoke([
+                    self._SystemMessage(content=system_prompt),
+                    self._HumanMessage(content=user_prompt),
+                ])
+            except Exception as exc:  # pragma: no cover - defensive
+                LOGGER.warning("Remote AI generation failed for member %s: %s", member_id, exc)
+                response = None
+            if response is not None:
+                message = getattr(response, "content", None)
+        else:
+            try:
+                response = self._client.chat.completions.create(
+                    model=self.config.model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    timeout=self.config.timeout,
+                    stop=["<end_of_turn>", "文案重點說明", "---", "<|eot_id|>"],
+                )
+            except OpenAIError as exc:
+                LOGGER.warning(
+                    "AI generation failed for member %s: %s", member_id, exc)
+                return None
+
+            choice = response.choices[0] if response.choices else None
+            if choice is not None:
+                chat_message = getattr(choice, "message", None)
+                if chat_message is not None:
+                    message = getattr(chat_message, "content", None)
         if message:
             message = message.replace("<end_of_turn>", "").strip()
             self._store_cache(key, message)

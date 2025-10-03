@@ -159,14 +159,14 @@ python -m pi_kiosk.flask_app --camera --db-path data/kiosk.db --model-dir models
 
   | 變數 | 預設值 | 說明 |
   | ---- | ------ | ---- |
-  | `AI_PROVIDER` | `local` | 目前僅用於註記來源 |
-  | `AI_BASE_URL` | `http://localhost:8080/v1` | OpenAI 相容 API 位置 |
-  | `AI_MODEL` | `LLaMA_CPP` | 模型名稱 |
-  | `AI_API_KEY` | `sk-no-key-required` | API Key（本地服務可忽略） |
-  | `AI_TIMEOUT` | `35` (local) / `20` (other) | 單次請求逾時秒數，亦可自行覆寫 |
-  | `AI_CACHE_TTL` | `60` | 同一會員文案快取秒數 |
+| `AI_PROVIDER` | `local` | 目前僅用於註記來源 |
+| `AI_BASE_URL` | `http://localhost:8080/v1` | OpenAI 相容 API 位置（遠端 Ollama 可改為 Server URL） |
+| `AI_MODEL` | `LLaMA_CPP` | 模型名稱（本地與遠端皆共用） |
+| `AI_API_KEY` | `sk-no-key-required` | API Key（本地服務可忽略） |
+| `AI_TIMEOUT` | `35` (local) / `20` (other) | 單次請求逾時秒數，亦可自行覆寫 |
+| `AI_CACHE_TTL` | `60` | 同一會員文案快取秒數 |
 
-- 需要改接雲端模型時，只要更新上述設定即可。
+- 若想改用遠端 Ollama，將 `AI_PROVIDER` 設為 `remote_ollama`（或 `ollama`），並於環境安裝 `langchain-community`、`langchain-core` 套件；`AI_BASE_URL` / `AI_MODEL` 對應遠端設定即可。
 - 可使用 `scripts/run_flask_ai.sh` 先設定上述環境變數再啟動 Flask（可依需求修改腳本內容）。
 
 ## SQLite 結構與示範資料
