@@ -341,6 +341,52 @@ class PipelineTests(unittest.TestCase):
         parsed = datetime.fromisoformat(freeze_until.replace("Z", "+00:00"))
         self.assertGreater(parsed.timestamp(), start)
 
+    def test_auto_enroll_skips_existing_member_and_registers_next(self) -> None:
+        descriptor = np.linspace(0, 1, 128, dtype=np.float32)
+        existing_match = FaceMatch(
+            descriptor=descriptor,
+            location=FaceLocation(top=0, right=4, bottom=4, left=0),
+            label="member-existing",
+            matched=True,
+            distance=0.3,
+        )
+        new_descriptor = np.linspace(1, 2, 128, dtype=np.float32)
+        new_match = FaceMatch(
+            descriptor=new_descriptor,
+            location=FaceLocation(top=0, right=8, bottom=8, left=0),
+            label="member-new",
+            matched=False,
+            distance=None,
+        )
+
+        identifier = FaceIdentifierStub([[existing_match], [new_match]])
+        config = PipelineConfig(
+            db_path=self.db_path,
+            simulated_member_ids=None,
+            cooldown_seconds=0,
+            idle_reset_seconds=None,
+            auto_enroll_first_face=True,
+            use_trained_classifier=False,
+        )
+        pipeline = AdvertisementPipeline(config, identifier=identifier, ai_client=self.stub_ai)
+
+        database.register_member(
+            pipeline.conn,
+            "member-existing",
+            "2025-09-29T00:00:00",
+            source="trained",
+            updated_at="2025-09-29T00:00:00",
+        )
+
+        frame = np.zeros((10, 10, 3), dtype=np.uint8)
+        pipeline.process_frame(frame)
+        self.assertFalse(pipeline._auto_enroll_done)
+
+        pipeline.process_frame(frame)
+        self.assertTrue(pipeline._auto_enroll_done)
+        row = database.get_member(pipeline.conn, "member-new")
+        self.assertIsNotNone(row)
+
     def test_trained_classifier_does_not_register_member(self) -> None:
         descriptor = np.zeros(128, dtype=np.float32)
         match = FaceMatch(

@@ -387,9 +387,8 @@ class AdvertisementPipeline:
 
         first = matches[0]
         member_id = str(first.label)
-        if member_id in self._registered_face_ids:
-            self._auto_enroll_done = True
-            sources[member_id] = self._enrolled_sources.get(member_id, "auto_enroll")
+        if member_id in self._registered_face_ids or database.get_member(self.conn, member_id) is not None:
+            sources[member_id] = self._enrolled_sources.get(member_id, "trained")
             return sources
 
         descriptor = first.descriptor
