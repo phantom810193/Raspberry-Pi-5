@@ -385,6 +385,32 @@ class PipelineTests(unittest.TestCase):
         row = database.get_member(pipeline.conn, "member-new")
         self.assertIsNotNone(row)
 
+    def test_auto_enroll_skips_small_face(self) -> None:
+        small_descriptor = np.linspace(0, 1, 128, dtype=np.float32)
+        small_match = FaceMatch(
+            descriptor=small_descriptor,
+            location=FaceLocation(top=0, right=4, bottom=4, left=0),
+            label="member-small",
+            matched=False,
+            distance=None,
+        )
+
+        identifier = FaceIdentifierStub([[small_match]])
+        config = PipelineConfig(
+            db_path=self.db_path,
+            simulated_member_ids=None,
+            cooldown_seconds=0,
+            idle_reset_seconds=None,
+            auto_enroll_first_face=True,
+            use_trained_classifier=False,
+        )
+        pipeline = AdvertisementPipeline(config, identifier=identifier, ai_client=self.stub_ai)
+
+        frame = np.zeros((32, 32, 3), dtype=np.uint8)
+        pipeline.process_frame(frame)
+        row = database.get_member(pipeline.conn, "member-small")
+        self.assertIsNone(row)
+
     def test_trained_classifier_does_not_register_member(self) -> None:
         descriptor = np.zeros(128, dtype=np.float32)
         match = FaceMatch(

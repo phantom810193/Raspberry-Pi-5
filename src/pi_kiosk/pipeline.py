@@ -33,6 +33,7 @@ EXPOSURE_CHOICES = (800.0, 600.0, 400.0)
 MIN_MEAN = 15.0
 GAIN = 5.0
 CANDIDATE_GLOB = "/dev/video*"
+AUTO_ENROLL_MIN_RATIO = 0.5
 
 
 class Identifier(Protocol):
@@ -381,6 +382,20 @@ class AdvertisementPipeline:
         if not matches:
             return sources
         first = matches[0]
+        frame_height, frame_width = frame.shape[:2]
+        frame_area = float(frame_height * frame_width)
+        if frame_area <= 0:
+            return sources
+
+        location = first.location
+        face_width = max(0, float(location.right - location.left))
+        face_height = max(0, float(location.bottom - location.top))
+        face_area = face_width * face_height
+        if face_area <= 0:
+            return sources
+        if (face_area / frame_area) < AUTO_ENROLL_MIN_RATIO:
+            return sources
+
         member_id = str(first.label)
         if member_id in self._registered_face_ids or database.get_member(self.conn, member_id) is not None:
             sources[member_id] = self._enrolled_sources.get(member_id, "trained")
