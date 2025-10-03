@@ -92,7 +92,6 @@ class AdvertisementPipeline:
         self._base_classifier: Optional[ClassifierModel] = None
         self._registered_face_ids: set[str] = set()
         self._base_classifier_labels: set[str] = set()
-        self._auto_enroll_done = False
         self._enrolled_sources: Dict[str, str] = {}
         self._debug_frame: Optional[bytes] = None
         self._debug_metadata: List[Dict[str, Any]] = []
@@ -346,7 +345,6 @@ class AdvertisementPipeline:
                 enrolled_sources[member_id] = "auto_enroll"
 
         self._registered_face_ids = set(labels)
-        self._auto_enroll_done = bool(self._registered_face_ids)
         self._enrolled_sources = enrolled_sources
 
         db_classifier: Optional[ClassifierModel] = None
@@ -382,9 +380,6 @@ class AdvertisementPipeline:
             return sources
         if not matches:
             return sources
-        if self._auto_enroll_done:
-            return sources
-
         first = matches[0]
         member_id = str(first.label)
         if member_id in self._registered_face_ids or database.get_member(self.conn, member_id) is not None:
@@ -405,7 +400,6 @@ class AdvertisementPipeline:
         database.store_face_feature(self.conn, member_id, descriptor.astype(np.float32).tobytes(), created_at, snapshot_bytes)
         database.update_member_metadata(self.conn, member_id, source="auto_enroll", updated_at=created_at)
         self._reload_classifier_from_db()
-        self._auto_enroll_done = True
         sources[member_id] = "auto_enroll"
         return sources
 

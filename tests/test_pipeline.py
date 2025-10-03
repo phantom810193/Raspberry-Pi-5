@@ -380,10 +380,8 @@ class PipelineTests(unittest.TestCase):
 
         frame = np.zeros((10, 10, 3), dtype=np.uint8)
         pipeline.process_frame(frame)
-        self.assertFalse(pipeline._auto_enroll_done)
 
         pipeline.process_frame(frame)
-        self.assertTrue(pipeline._auto_enroll_done)
         row = database.get_member(pipeline.conn, "member-new")
         self.assertIsNotNone(row)
 
