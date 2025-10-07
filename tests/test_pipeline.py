@@ -480,5 +480,30 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(member_row["source"], "trained")
         self.assertNotEqual(member_row["updated_at"], initial_timestamp)
 
+    def test_base_classifier_labels_registered_in_members(self) -> None:
+        descriptor = np.zeros(128, dtype=np.float32)
+        base_classifier = ClassifierModel(
+            labels=["member-trained"],
+            embeddings=np.stack([descriptor]),
+            distance_threshold=0.6,
+        )
+
+        identifier = FaceIdentifierStub([[]])
+        identifier.set_classifier(base_classifier)
+
+        config = PipelineConfig(
+            db_path=self.db_path,
+            simulated_member_ids=None,
+            cooldown_seconds=0,
+            idle_reset_seconds=None,
+            use_trained_classifier=True,
+        )
+
+        pipeline = AdvertisementPipeline(config, identifier=identifier, ai_client=self.stub_ai)
+
+        row = database.get_member(pipeline.conn, "member-trained")
+        self.assertIsNotNone(row)
+        self.assertEqual(row["source"], "trained")
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

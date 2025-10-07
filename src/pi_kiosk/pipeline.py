@@ -102,6 +102,7 @@ class AdvertisementPipeline:
             get_classifier = getattr(self.identifier, "get_classifier", lambda: None)
             base_classifier = get_classifier()
             if base_classifier is not None and self.config.use_trained_classifier:
+                self._register_trained_members(base_classifier.labels)
                 self._base_classifier = self._clone_classifier(base_classifier)
             if not self.config.use_trained_classifier and hasattr(self.identifier, "set_classifier"):
                 self.identifier.set_classifier(None)
@@ -374,6 +375,22 @@ class AdvertisementPipeline:
             active_classifier = db_classifier
 
         self.identifier.set_classifier(active_classifier)
+
+    def _register_trained_members(self, labels: Iterable[str]) -> None:
+        for label in labels:
+            member_id = str(label).strip()
+            if not member_id:
+                continue
+            if database.get_member(self.conn, member_id) is not None:
+                continue
+            timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            database.register_member(
+                self.conn,
+                member_id,
+                timestamp,
+                source="trained",
+                updated_at=timestamp,
+            )
 
     def _maybe_auto_enroll(self, matches: List[FaceMatch], frame: np.ndarray) -> Dict[str, str]:
         sources: Dict[str, str] = {}
