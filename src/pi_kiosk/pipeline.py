@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from glob import glob
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Protocol, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol, Tuple
 
 try:
     import cv2  # type: ignore
@@ -26,7 +26,7 @@ from .ai_client import AIClient, build_context_from_transactions
 from .detection import ClassifierModel, DetectionConfig, FaceIdentifier, FaceMatch, SimulatedFaceIdentifier
 
 
-FOURCC = "YUYV"
+FOURCC = "BGR3"
 DEFAULT_WIDTH = 1280
 DEFAULT_HEIGHT = 720
 EXPOSURE_CHOICES = (800.0, 600.0, 400.0)
@@ -34,6 +34,7 @@ MIN_MEAN = 15.0
 GAIN = 5.0
 CANDIDATE_GLOB = "/dev/video*"
 AUTO_ENROLL_MIN_RATIO = 0.5
+FrameConverter = Callable[[np.ndarray], Optional[np.ndarray]]
 
 
 class Identifier(Protocol):
@@ -588,21 +589,55 @@ def _candidate_devices(primary_index: int) -> Tuple[str, ...]:
     return tuple(devices)
 
 
-def _normalise_frame(frame: np.ndarray) -> Optional[np.ndarray]:
-    if frame is None:
-        return None
-    if frame.ndim == 2 or (frame.ndim == 3 and frame.shape[2] in (1, 2)):
-        return cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_YUY2)
-    if frame.ndim == 3 and frame.shape[2] != 3:
-        return None
-    return frame
+def _fourcc_to_string(fourcc_value: float) -> str:
+    try:
+        code = int(fourcc_value)
+    except (TypeError, ValueError):
+        return ""
+    chars = [chr((code >> (8 * i)) & 0xFF) for i in range(4)]
+    return "".join(chars).strip().upper()
+
+
+def _build_frame_converter(fourcc: str, reference_frame: np.ndarray) -> Tuple[FrameConverter, str]:
+    if reference_frame is None:
+        return (lambda _frame: None), fourcc or "UNKNOWN"
+
+    if reference_frame.ndim == 3 and reference_frame.shape[2] == 3:
+        return (lambda frame: frame), fourcc or "BGR"
+
+    if reference_frame.ndim == 2:
+        return (
+            lambda frame: cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR),
+            fourcc or "GRAY",
+        )
+
+    conversion_map: Dict[str, int] = {
+        "YUYV": cv2.COLOR_YUV2BGR_YUY2,
+        "YVYU": cv2.COLOR_YUV2BGR_YVYU,
+        "UYVY": cv2.COLOR_YUV2BGR_UYVY,
+    }
+    conversion_code = conversion_map.get(fourcc, cv2.COLOR_YUV2BGR_YUY2)
+
+    def _convert(frame: np.ndarray) -> Optional[np.ndarray]:
+        try:
+            return cv2.cvtColor(frame, conversion_code)
+        except cv2.error as exc:  # pragma: no cover - defensive path
+            LOGGER.warning(
+                "Failed to convert frame using format %s (code=%s): %s",
+                fourcc or "UNKNOWN",
+                conversion_code,
+                exc,
+            )
+            return None
+
+    return _convert, fourcc or "YUYV"
 
 
 def _open_capture(
     camera_index: int,
     width: Optional[int],
     height: Optional[int],
-) -> Tuple["cv2.VideoCapture", str, np.ndarray]:
+) -> Tuple["cv2.VideoCapture", str, np.ndarray, FrameConverter, str]:
     last_error = ""
     candidates = _candidate_devices(camera_index)
     if not candidates:
@@ -617,6 +652,7 @@ def _open_capture(
             cap.release()
             continue
         cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*FOURCC))
+        cap.set(cv2.CAP_PROP_CONVERT_RGB, 0.0)
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, target_width)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, target_height)
 
@@ -630,14 +666,18 @@ def _open_capture(
                 mean_value = float(frame.mean())
                 LOGGER.info("device=%s, exposure=%s, mean=%.2f", device, exposure, mean_value)
                 if mean_value > MIN_MEAN:
-                    return cap, device, frame
+                    fourcc_string = _fourcc_to_string(cap.get(cv2.CAP_PROP_FOURCC))
+                    converter, resolved_format = _build_frame_converter(fourcc_string, frame)
+                    return cap, device, frame, converter, resolved_format
 
         cap.set(cv2.CAP_PROP_EXPOSURE, float(EXPOSURE_CHOICES[0]))
         cap.set(cv2.CAP_PROP_GAIN, float(GAIN))
         time.sleep(0.3)
         ok, frame = cap.read()
         if ok and frame is not None:
-            return cap, device, frame
+            fourcc_string = _fourcc_to_string(cap.get(cv2.CAP_PROP_FOURCC))
+            converter, resolved_format = _build_frame_converter(fourcc_string, frame)
+            return cap, device, frame, converter, resolved_format
 
         last_error = f"{device} returned empty frame despite exposure attempts"
         cap.release()
@@ -650,10 +690,10 @@ def camera_loop(pipeline: AdvertisementPipeline, camera_index: int = 0, width: O
     if not OPENCV_AVAILABLE:
         raise ImportError("OpenCV (cv2) is not installed; camera loop is unavailable")
 
-    capture, device_path, frame = _open_capture(camera_index, width, height)
-    LOGGER.info("Using video device: %s", device_path)
+    capture, device_path, frame, convert_frame, pixel_format = _open_capture(camera_index, width, height)
+    LOGGER.info("Using video device: %s (pixel_format=%s)", device_path, pixel_format or "UNKNOWN")
 
-    initial_bgr = _normalise_frame(frame)
+    initial_bgr = convert_frame(frame)
     if initial_bgr is None:
         LOGGER.warning("Initial frame from %s had unexpected shape", device_path)
     else:
@@ -675,7 +715,7 @@ def camera_loop(pipeline: AdvertisementPipeline, camera_index: int = 0, width: O
                 time.sleep(0.1)
                 continue
 
-            normalised = _normalise_frame(frame)
+            normalised = convert_frame(frame)
             if normalised is None:
                 LOGGER.warning("Unexpected frame shape from camera index %s", camera_index)
                 time.sleep(0.1)
