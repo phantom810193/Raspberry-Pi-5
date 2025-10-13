@@ -38,8 +38,14 @@
 
 ```bash
 sudo apt update
-sudo apt install -y build-essential cmake python3-dev libopenblas-dev liblapack-dev libx11-dev libgtk-3-dev
+sudo apt install -y \
+  build-essential cmake python3-dev \
+  libopenblas-dev liblapack-dev libx11-dev libgtk-3-dev \
+  libatlas-base-dev libcamera-apps libcamerify v4l-utils
 ```
+
+- `libcamera-apps` / `libcamerify` 讓 CSI/USB 攝影機透過 libcamera V4L2 相容層輸出 BGR 影像。
+- `v4l-utils` 的 `v4l2-ctl --list-formats-ext` 可協助檢視支援的解析度與像素格式。
 
 安裝 Python 套件：
 
@@ -91,7 +97,18 @@ models/
   - `--no-trained-classifier`：僅使用資料庫中的即時註冊特徵，不載入 `models/face_classifier.pkl`。
 - 管理端可透過 REST API 操作臉部特徵：
   - `GET /api/face-features`：列出目前資料庫中的成員 ID。
-  - `POST /api/face-features`：傳入 `member_id` 與 128 維 `descriptor`（可選擇附上 base64 編碼的 `snapshot`）以新增/覆蓋特徵。
+  - `POST /api/face-features`：傳入 `member_id` 與 128 維 `descriptor`（可選擇附上 base64 編碼的 `snapshot`）以新增/覆蓋特徵。範例：
+
+    ```bash
+    curl -X POST http://<IP>:8000/api/face-features \
+      -H "Content-Type: application/json" \
+      -d '{
+            "member_id": "member-505",
+            "descriptor": [0.12, 0.03, -0.14, ... 共 128 個浮點數 ...],
+            "snapshot": null
+          }'
+    ```
+  - `POST /api/transactions`：輸入 `member_id` 與消費紀錄，更新廣告上下文。
   - `DELETE /api/face-features/<member_id>`：移除指定成員的特徵資料。
 - `members` 表新增 `source`、`updated_at` 欄位，用於標記身分來源：
   - 預訓練模型辨識：`trained`
@@ -118,7 +135,14 @@ curl -X POST http://<IP>:8000/api/simulate -H 'Content-Type: application/json' -
 
 ```bash
 source .venv/bin/activate
-python -m pi_kiosk.flask_app --camera --db-path data/kiosk.db --model-dir models --classifier models/face_classifier.pkl
+PYTHONPATH=src libcamerify python -m pi_kiosk.flask_app \
+  --db-path data/kiosk.db \
+  --model-dir models \
+  --classifier models/face_classifier.pkl \
+  --camera \
+  --frame-width 640 \
+  --frame-height 480 \
+  --display-freeze-seconds 0
 ```
 
 若未提供 `--classifier`，系統會自動尋找 `models/face_classifier.pkl`，找不到時回到匿名雜湊模式。
@@ -126,10 +150,11 @@ python -m pi_kiosk.flask_app --camera --db-path data/kiosk.db --model-dir models
 參數說明：
 
 - `--camera-index`：攝影機編號（預設 0）。
-- `--frame-width`, `--frame-height`：可選擇設定影像解析度。
+- `--frame-width`, `--frame-height`：設定影像解析度。較低解析度（如 640×480 或 320×240）可加快 dlib 推論。
 - `--cooldown-seconds`：於 `PipelineConfig` 中可微調同一 ID 觸發間隔（預設 2 秒）。
 - `--idle-reset-seconds`：閒置多久後回復「等待辨識中…」，設定為 0 可停用。
 - `--display-freeze-seconds`：新廣告顯示後凍結畫面與倒數的秒數（預設 10 秒，設 0 關閉）。
+- `--no-trained-classifier`：僅使用資料庫即時註冊特徵。
 
 程式會啟動背景執行緒讀取攝影機並進行辨識，Flask 頁面即時更新廣告。
 
@@ -151,6 +176,7 @@ python -m pi_kiosk.flask_app --camera --db-path data/kiosk.db --model-dir models
   ```
 
   僅允許已存在於 `members` 表的會員 ID；若找不到會員會回傳 404。
+- `GET /debug/frame`：取得偵測畫面（Base64 JPEG）與人臉框 metadata。可搭配 `?cache=false` 或瀏覽器 devtools 觀察即時輸出。
 
 ### 生成式 AI 廣告
 
@@ -193,6 +219,16 @@ python -m pi_kiosk.flask_app --camera --db-path data/kiosk.db --model-dir models
 ```bash
 PYTHONPATH=src python -m unittest discover -s tests
 ```
+
+## 實用腳本
+
+| 指令 | 說明 |
+| ---- | ---- |
+| `PYTHONPATH=src python scripts/build_encodings.py --input <資料夾> --output models/known_faces.npz` | 從人臉照片產生編碼檔案。 |
+| `PYTHONPATH=src python scripts/train_classifier.py --input models/known_faces.npz --output models/face_classifier.pkl` | 依平均向量訓練最近鄰分類器，可搭配 `--hash-labels` 匿名化。 |
+| `PYTHONPATH=src python scripts/dump_face_features.py --db data/kiosk.db` | 列出 SQLite 內的臉部特徵與來源資訊。 |
+| `PYTHONPATH=src python scripts/clear_kiosk_db.py --db data/kiosk.db` | 清除示範資料庫（會移除會員、交易與臉部特徵）。 |
+| `./scripts/run_flask_ai.sh` | 範例啟動腳本：先啟動本地 LLM，再以建議參數執行 Flask。可依實際環境調整。 |
 
 ## 進一步擴充
 
